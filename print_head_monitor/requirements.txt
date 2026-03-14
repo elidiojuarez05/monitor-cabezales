@@ -1,0 +1,9 @@
+streamlit
+opencv-python-headless
+numpy
+pandas
+sqlalchemy
+qrcode
+pillow
+streamlit-js-eval
+streamlit-cropper
