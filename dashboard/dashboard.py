@@ -285,7 +285,20 @@ if st.session_state.authenticated and run_camera:
                 res = res[m_h:h-m_h, m_w:w-m_w]
 
             # Detección de bordes para auto-enderezado
-            gray = cv2.cvtColor(res, cv2.COLOR_BGR2GRAY)
+            # --- CÓDIGO CORREGIDO ---
+            if res is not None:
+                try:
+                    # Solo procesamos si 'res' tiene contenido
+                    gray = cv2.cvtColor(res, cv2.COLOR_BGR2GRAY)
+                    
+                    # Aquí sigue tu lógica de detección de inyectores...
+                    # (Detección de círculos, dibujo, etc.)
+                    
+                except cv2.error as e:
+                    st.error("Error al procesar la imagen de la cámara.")
+            else:
+                # Si aún no hay imagen, mostramos un mensaje amigable en lugar de un error
+                st.warning("Esperando señal de la cámara... Asegúrate de dar permisos en tu celular.")
             edged = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 50, 150)
             cnts, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
