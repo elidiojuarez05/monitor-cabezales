@@ -1,0 +1,10 @@
+streamlit
+streamlit-cropper
+streamlit-webrtc
+opencv-python-headless
+pandas
+numpy
+SQLAlchemy
+Pillow
+qrcode
+fpdf
