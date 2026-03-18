@@ -171,20 +171,32 @@ def render_machine_card(m_name, db_session, fecha_consulta, suffix=""):
         """, unsafe_allow_html=True)
 
 # =========================================================
-# 6. LÓGICA DE AUTENTICACIÓN (LOGIN)
+# 6. LÓGICA DE AUTENTICACIÓN (LOGIN) - CORREGIDO
 # =========================================================
 if not st.session_state.authenticated:
     st.title("🔐 Acceso al Sistema")
     with st.form("login_form"):
         user_input = st.text_input("Usuario")
         pass_input = st.text_input("Contraseña", type="password")
-        if st.form_submit_button("Entrar"):
-            user = check_password(db, user_input, pass_input)
-            if user:
-                st.session_state.update({"authenticated": True, "user_role": user.role, "username": user.username})
-                st.rerun()
-            else:
-                st.error("Usuario o contraseña incorrectos")
+        
+        # EL BOTÓN DEBE ESTAR LIBRE DENTRO DEL 'WITH', NO DENTRO DE UN 'IF'
+        submit_button = st.form_submit_button("Entrar")
+        
+    # La lógica de validación ocurre DESPUÉS de que se cierra el bloque 'with' 
+    # o usando la variable del botón
+    if submit_button:
+        user = check_password(db, user_input, pass_input)
+        if user:
+            st.session_state.update({
+                "authenticated": True, 
+                "user_role": user.role, 
+                "username": user.username
+            })
+            st.success(f"Bienvenido {user.username}")
+            st.rerun()
+        else:
+            st.error("Usuario o contraseña incorrectos")
+            
     st.stop()
 
 # =========================================================
