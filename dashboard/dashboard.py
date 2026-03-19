@@ -159,8 +159,12 @@ def guardar_evidencia_fisica(imagen_pil, nombre_maquina):
     imagen_pil.save(full_path, "JPEG")
     return full_path
 
-def render_machine_card(m_name, db_session, fecha_consulta, suffix=""):
-    last_test = crud.get_test_by_date(db_session, m_name, fecha_consulta)
+def render_machine_card(m_name, fecha_consulta, suffix=""):
+    # 1. En lugar de usar crud.get_test, leemos el DF de Google
+    df_tests = conn.read(worksheet="tests", ttl="10s")
+    
+    # Filtramos para buscar el último test de esta máquina
+    last_test = df_tests[df_tests['maquina'] == m_name].tail(1)
     estado_actual = st.session_state.estados_maquinas.get(m_name, "Operativa")
     fecha_ultimo = last_test.timestamp.strftime('%d/%m/%Y %I:%M %p') if last_test else "Sin registros"
 
@@ -349,8 +353,18 @@ if foto:
                         
                         ruta_evidencia = guardar_evidencia_fisica(img_pil, machine_selected_global)
                         
-                        crud.save_test_result(db, machine_selected_global, salud, fallas, mapa.tolist(), ruta_evidencia)
-                        db.commit() 
+                        # En la sección de la cámara, busca donde dice crud.save_test_result y cámbialo por:
+                        def guardar_test_en_google(maquina, salud, fallas, evidencia):
+                            df_actual = conn.read(worksheet="tests")
+                            nuevo_registro = pd.DataFrame([{
+                                "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                "maquina": maquina,
+                                "salud": salud,
+                                "fallas": fallas,
+                                "evidencia": evidencia
+                            }])
+                            df_final = pd.concat([df_actual, nuevo_registro], ignore_index=True)
+                            conn.update(worksheet="tests", data=df_final) 
                         
                         contenedor_estado.success(f"✅ ¡{machine_selected_global} Actualizada! ({salud:.1f}%)")
                         st.balloons()
