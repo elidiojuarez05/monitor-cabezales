@@ -66,11 +66,18 @@ db = GSheetsDB()
 def check_login(user, pwd):
     df = db.safe_read("usuarios")
     if df.empty: return False
-    # Buscamos el usuario
+    
+    # .str.strip() elimina espacios accidentales al inicio o final
+    user = str(user).strip()
+    df['usuario'] = df['usuario'].astype(str).str.strip()
+    
     match = df[df['usuario'] == user]
     if not match.empty:
-        h = hashlib.sha256(pwd.encode()).hexdigest()
-        if str(match.iloc[0]['contraseña']) == h:
+        # Ciframos la contraseña ingresada para comparar
+        h = hashlib.sha256(pwd.strip().encode()).hexdigest()
+        db_pwd = str(match.iloc[0]['contraseña']).strip()
+        
+        if db_pwd == h:
             return match.iloc[0]['rol']
     return False
 
