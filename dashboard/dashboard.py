@@ -36,6 +36,18 @@ REPORTES_PATH = os.path.join(BASE_DIR, "reportes")
 # =========================================================
 st.set_page_config(page_title="Print Head Monitor", layout="wide")
 
+st.markdown("""
+    <style>
+    /* Forzar que los iconos de la barra lateral sean visibles */
+    [data-testid="stSidebarNav"] {
+        background-color: rgba(100, 100, 100, 0.1);
+    }
+    /* Asegurar que el botón de cerrar/abrir sidebar se vea */
+    .st-emotion-cache-1avcm0n {
+        color: orange !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 # =========================================================
 # 2. CONFIGURACIÓN DE RUTAS Y PATHS
 # =========================================================
