@@ -42,6 +42,8 @@ st.markdown("""
 # Reemplaza tu clase GSheetsDB o la parte de lectura con esto:
 class GSheetsDB:
     def __init__(self):
+        st.write("¿Qué pestañas veo?", conn.list_worksheets()) # Esto te dirá los nombres reales que detecta
+        st.write("Contenido de la tabla:", df)
         self.conn = st.connection("gsheets", type=GSheetsConnection)
 
     def safe_read(self, sheet_name):
@@ -49,6 +51,7 @@ class GSheetsDB:
             # Intentamos leer la pestaña
             return self.conn.read(worksheet=sheet_name, ttl="0")
         except Exception as e:
+            return self.conn.read(ttl=0)
             # Si da error 401, lo capturamos para que la app no se detenga
             if "401" in str(e):
                 st.error(f"🚫 Error de Autorización (401): No tengo permiso para leer la pestaña '{sheet_name}'.")
