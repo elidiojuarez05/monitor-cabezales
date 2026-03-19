@@ -114,7 +114,23 @@ run_camera = False
 # 5. FUNCIONES DE APOYO Y BASE DE DATOS
 # =========================================================
 database.Base.metadata.create_all(bind=database.engine)
-db = database.SessionLocal()
+dfrom streamlit_gsheets import GSheetsConnection
+
+# 1. Crear la conexión (Sustituye tu vieja inicialización de DB)
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 2. Función para leer el estado de las máquinas
+def obtener_datos_maquinas():
+    # Lee la pestaña 'maquinas' y refresca cada 10 segundos
+    return conn.read(worksheet="maquinas", ttl="10s")
+
+# 3. Función para actualizar un estado (Lo que hará el celular)
+def actualizar_estado_maquina(nombre_maquina, nuevo_estado, operador):
+    df = obtener_datos_maquinas()
+    # Buscamos la fila de la máquina y cambiamos el dato
+    df.loc[df['nombre'] == nombre_maquina, ['estado', 'ultima_actualizacion', 'operador']] = [nuevo_estado, datetime.now().strftime("%Y-%m-%d %H:%M"), operador]
+    # Guardamos de vuelta en Google Sheets
+    conn.update(worksheet="maquinas", data=df)
 
 def init_admin_user(db_session):
     admin_user = "admin"
