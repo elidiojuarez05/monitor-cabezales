@@ -47,7 +47,7 @@ class GSheetsDB:
     def safe_read(self, sheet_name):
         try:
             # Intentamos leer la pestaña
-            return self.conn.read(worksheet=sheet_name, ttl="10s")
+            return self.conn.read(worksheet=sheet_name, ttl="0")
         except Exception as e:
             # Si da error 401, lo capturamos para que la app no se detenga
             if "401" in str(e):
@@ -65,7 +65,7 @@ db = GSheetsDB()
 
 def check_login(user, pwd):
     df = db.safe_read("usuarios")
-    
+    st.write("Datos recibidos:", df)
     if df.empty:
         st.error("La hoja de 'usuarios' está vacía o no se pudo leer.")
         return False
