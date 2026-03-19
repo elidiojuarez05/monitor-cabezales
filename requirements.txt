@@ -8,3 +8,4 @@ SQLAlchemy
 Pillow
 qrcode
 fpdf
+st-gsheets-connection
