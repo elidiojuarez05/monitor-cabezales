@@ -270,6 +270,7 @@ with st.sidebar:
         st.rerun()
 
 # --- LÓGICA DE CÁMARA (MODO FOTO - CORREGIDO) ---
+foto = None
 if foto:
         st.session_state.bloquear_refresco = True
         
