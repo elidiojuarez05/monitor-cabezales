@@ -269,7 +269,8 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.rerun()
 
-# --- LÓGICA DE CÁMARA (MODO FOTO - CORREGIDO) ---
+foto = None  # <-- ESTA LÍNEA ES LA MAGIA QUE EVITA EL NAMEERROR
+
 if foto:
         st.session_state.bloquear_refresco = True
         
