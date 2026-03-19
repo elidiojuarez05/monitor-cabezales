@@ -13,6 +13,7 @@ from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import qrcode
 from io import BytesIO
 import base64
+from streamlit_gsheets import GSheetsConnection
 
 
 # --- CONFIGURACIÓN DE RUTAS PARA EL EJECUTABLE ---
@@ -114,7 +115,7 @@ run_camera = False
 # 5. FUNCIONES DE APOYO Y BASE DE DATOS
 # =========================================================
 database.Base.metadata.create_all(bind=database.engine)
-dfrom streamlit_gsheets import GSheetsConnection
+
 
 # 1. Crear la conexión (Sustituye tu vieja inicialización de DB)
 conn = st.connection("gsheets", type=GSheetsConnection)
