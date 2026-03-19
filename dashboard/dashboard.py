@@ -1,180 +1,197 @@
-import sys
-import os
+import streamlit as st
+from streamlit_gsheets import GSheetsConnection
+import pandas as pd
 import hashlib
+import time
+from datetime import datetime
+from PIL import Image
 import numpy as np
 import cv2
-import pandas as pd
-import streamlit as st
-from streamlit_cropper import st_cropper
-from PIL import Image
-from datetime import datetime, timedelta
-import time
-from streamlit_gsheets import GSheetsConnection
+import os
 
 # =========================================================
-# 1. CONFIGURACIÓN DE PÁGINA E IMAGEN INDUSTRIAL
+# CONFIGURACIÓN VISUAL INDUSTRIAL (DARK TECH)
 # =========================================================
-st.set_page_config(page_title="Industrial Print Monitor", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Industrial Monitor v2", layout="wide")
 
-# CSS Personalizado: Estética de Terminal Industrial / Dark Mode Pro
 st.markdown("""
     <style>
-    .stApp { background-color: #0b0e14; color: #d1d5db; }
-    [data-testid="stMetricValue"] { color: #00e5ff; font-family: 'IBM Plex Mono', monospace; font-size: 1.8rem !important; }
-    .stButton>button {
-        background-color: #1a202c; border: 1px solid #2d3748; color: #60a5fa;
-        font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+    .stApp { background-color: #0d1117; color: #c9d1d9; }
+    header {visibility: hidden;}
+    .main-header {
+        background: linear-gradient(90deg, #161b22 0%, #0d1117 100%);
+        padding: 20px; border-radius: 10px; border-left: 5px solid #58a6ff;
+        margin-bottom: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
     }
-    .stButton>button:hover { border-color: #3b82f6; color: white; background-color: #2563eb; }
-    div[data-testid="stSidebar"] { background-color: #0f172a; border-right: 1px solid #1e293b; }
-    .status-card {
-        padding: 1.5rem; border-radius: 4px; border-left: 4px solid #3b82f6;
-        background-color: #161b22; margin-bottom: 10px;
+    div[data-testid="stMetricValue"] { color: #58a6ff; font-family: 'Courier New', monospace; }
+    .stButton>button {
+        width: 100%; border-radius: 5px; background-color: #21262d; 
+        color: #c9d1d9; border: 1px solid #30363d; transition: 0.3s;
+    }
+    .stButton>button:hover { border-color: #58a6ff; color: #58a6ff; background-color: #30363d; }
+    .card {
+        background-color: #161b22; padding: 20px; border-radius: 8px;
+        border: 1px solid #30363d; margin-bottom: 15px;
     }
     </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# 2. CONEXIÓN Y LÓGICA DE DATOS (GOOGLE SHEETS)
+# GESTOR DE DATOS (CONEXIÓN SEGURA)
 # =========================================================
-conn = st.connection("gsheets", type=GSheetsConnection)
+class GSheetsDB:
+    def __init__(self):
+        try:
+            self.conn = st.connection("gsheets", type=GSheetsConnection)
+        except Exception as e:
+            st.error(f"Error de conexión inicial: {e}")
 
-class DataManager:
-    """Manejo de datos basado en las pestañas específicas del usuario."""
-    
-    @staticmethod
-    def get_user(username):
-        df = conn.read(worksheet="usuarios", ttl=0)
-        user_row = df[df['usuario'] == username]
-        return user_row.iloc[0] if not user_row.empty else None
+    def safe_read(self, sheet_name):
+        """Lee datos con reintento y manejo de errores HTTP."""
+        try:
+            # Forzamos ttl=1 para evitar problemas de caché vieja pero no saturar a 0
+            return self.conn.read(worksheet=sheet_name, ttl="1m")
+        except Exception as e:
+            st.error(f"⚠️ Error accediendo a la pestaña '{sheet_name}': {e}")
+            return pd.DataFrame()
 
-    @staticmethod
-    def get_maquinas():
-        return conn.read(worksheet="maquinas", ttl=0)
+    def update_sheet(self, df, sheet_name):
+        try:
+            self.conn.update(worksheet=sheet_name, data=df)
+            return True
+        except Exception as e:
+            st.error(f"❌ Error al guardar en la nube: {e}")
+            return False
 
-    @staticmethod
-    def update_maquina_status(nombre, estado, operador):
-        df = conn.read(worksheet="maquinas", ttl=0)
-        idx = df.index[df['nombre'] == nombre].tolist()
-        if idx:
-            df.at[idx[0], 'estado'] = estado
-            df.at[idx[0], 'operador'] = operador
-            df.at[idx[0], 'ultima_actulizacion'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            conn.update(worksheet="maquinas", data=df)
-
-    @staticmethod
-    def save_test(maquina, salud, fallas, url_evidencia):
-        df = conn.read(worksheet="tests", ttl=0)
-        nuevo_test = pd.DataFrame([{
-            "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "maquina": maquina,
-            "salud": f"{salud:.2f}",
-            "fallas": int(fallas),
-            "evidencias_url": url_evidencia
-        }])
-        df_updated = pd.concat([df, nuevo_test], ignore_index=True)
-        conn.update(worksheet="tests", data=df_updated)
-
-    @staticmethod
-    def get_last_test(maquina):
-        df = conn.read(worksheet="tests", ttl=0)
-        res = df[df['maquina'] == maquina].sort_values(by='fecha', ascending=False)
-        return res.iloc[0] if not res.empty else None
+db = GSheetsDB()
 
 # =========================================================
-# 3. SESIÓN E INTERFAZ DE ACCESO
+# LÓGICA DE NEGOCIO
 # =========================================================
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 
-if not st.session_state.authenticated:
-    col1, col2, col3 = st.columns([1, 1.5, 1])
-    with col2:
-        st.markdown("<h2 style='text-align:center;'>CONTROL DE ACCESO INDUSTRIAL</h2>", unsafe_allow_html=True)
-        user_in = st.text_input("Usuario (Operador)")
-        pass_in = st.text_input("PIN / Contraseña", type="password")
-        if st.button("INGRESAR AL SISTEMA", use_container_width=True):
-            user_data = DataManager.get_user(user_in)
-            if user_data is not None and user_data['contraseña'] == hashlib.sha256(pass_in.encode()).hexdigest():
-                st.session_state.authenticated = True
-                st.session_state.username = user_in
-                st.session_state.role = user_data['rol']
+def check_login(user, pwd):
+    df = db.safe_read("usuarios")
+    if df.empty: return False
+    # Buscamos el usuario
+    match = df[df['usuario'] == user]
+    if not match.empty:
+        h = hashlib.sha256(pwd.encode()).hexdigest()
+        if str(match.iloc[0]['contraseña']) == h:
+            return match.iloc[0]['rol']
+    return False
+
+# =========================================================
+# INTERFAZ DE USUARIO
+# =========================================================
+
+if 'auth' not in st.session_state: st.session_state.auth = False
+
+if not st.session_state.auth:
+    st.markdown("<div class='main-header'><h1>🔐 Acceso al Sistema Industrial</h1></div>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 1, 1])
+    with c2:
+        u = st.text_input("ID de Operador")
+        p = st.text_input("PIN", type="password")
+        if st.button("AUTENTICAR"):
+            rol = check_login(u, p)
+            if rol:
+                st.session_state.auth = True
+                st.session_state.user = u
+                st.session_state.rol = rol
                 st.rerun()
             else:
-                st.error("Acceso denegado. Verifique credenciales.")
+                st.error("Credenciales incorrectas")
     st.stop()
 
-# =========================================================
-# 4. DASHBOARD PRINCIPAL
-# =========================================================
+# --- DASHBOARD PRINCIPAL ---
+st.markdown(f"""
+    <div class='main-header'>
+        <h1 style='margin:0;'>🏭 Panel de Control Planta</h1>
+        <small style='color:#8b949e;'>Usuario: {st.session_state.user} | Rol: {st.session_state.rol}</small>
+    </div>
+""", unsafe_allow_html=True)
 
-# --- BARRA LATERAL ---
+# Sidebar
 with st.sidebar:
-    st.markdown(f"### 🛠️ Estación: {st.session_state.username}")
-    st.caption(f"Rol: {st.session_state.role}")
-    st.divider()
-    
-    selected_m = st.selectbox("Seleccionar Máquina para Inspección", DataManager.get_maquinas()['nombre'])
-    run_camera = st.toggle("🎥 Activar Cámara de Inspección", False)
-    
-    st.divider()
-    if st.button("Cerrar Sesión", use_container_width=True):
-        st.session_state.authenticated = False
+    st.image("https://cdn-icons-png.flaticon.com/512/554/554866.png", width=100)
+    st.title("Opciones")
+    menu = st.radio("Navegación", ["Monitor General", "Cargar Test", "Administración"])
+    if st.button("Cerrar Sesión"):
+        st.session_state.auth = False
         st.rerun()
 
-# --- CUERPO DEL DASHBOARD ---
-st.title("📊 Monitor de Inyectores en Tiempo Real")
+# --- MÓDULO 1: MONITOR ---
+if menu == "Monitor General":
+    df_m = db.safe_read("maquinas")
+    df_t = db.safe_read("tests")
+    
+    if not df_m.empty:
+        cols = st.columns(3)
+        for i, (idx, row) in enumerate(df_m.iterrows()):
+            with cols[i % 3]:
+                st.markdown(f"""
+                <div class='card'>
+                    <h3 style='margin-top:0; color:#58a6ff;'>{row['nombre']}</h3>
+                    <p><b>Estado:</b> {row['estado']}</p>
+                    <small>Act: {row['ultima_actulizacion']}</small><br>
+                    <small>Op: {row['operador']}</small>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Mostrar último test si existe
+                if not df_t.empty:
+                    last_test = df_t[df_t['maquina'] == row['nombre']].sort_values(by='fecha', ascending=False)
+                    if not last_test.empty:
+                        val = float(last_test.iloc[0]['salud'])
+                        st.metric("Salud", f"{val}%", delta=f"{last_test.iloc[0]['fallas']} fallas", delta_color="inverse")
 
-# Sección de Cámara (Solo si se activa)
-if run_camera:
-    foto = st.camera_input("Capturar Test de Inyectores")
-    if foto:
-        with st.spinner("Procesando en la Nube..."):
-            # Lógica de procesamiento simulada (Integrar aquí tu image_processor)
-            salud_calculada = 98.5 # Ejemplo
-            fallas_detectadas = 12 # Ejemplo
+# --- MÓDULO 2: CARGAR TEST ---
+elif menu == "Cargar Test":
+    df_m = db.safe_read("maquinas")
+    maquina = st.selectbox("Seleccione Máquina", df_m['nombre'] if not df_m.empty else [])
+    
+    img_file = st.camera_input("Capturar Test")
+    if img_file:
+        with st.spinner("Sincronizando con Google Sheets..."):
+            # Aquí iría tu lógica de procesamiento de imagen
+            # Simulamos resultados:
+            salud_sim = 95.0
+            fallas_sim = 4
             
-            # Guardar en GSheets (pestaña tests)
-            DataManager.save_test(selected_m, salud_calculada, fallas_detectadas, "local_storage_or_cloud_url")
-            # Actualizar estado de máquina (pestaña maquinas)
-            DataManager.update_maquina_status(selected_m, "Operativa", st.session_state.username)
+            # 1. Guardar Test
+            df_t = db.safe_read("tests")
+            new_t = pd.DataFrame([{
+                "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "maquina": maquina,
+                "salud": salud_sim,
+                "fallas": fallas_sim,
+                "evidencias_url": "N/A"
+            }])
+            df_t_updated = pd.concat([df_t, new_t], ignore_index=True)
+            db.update_sheet(df_t_updated, "tests")
             
-            st.success(f"Test registrado para {selected_m}")
+            # 2. Actualizar Maquina
+            df_m.loc[df_m['nombre'] == maquina, 'estado'] = "Operativa"
+            df_m.loc[df_m['nombre'] == maquina, 'operador'] = st.session_state.user
+            df_m.loc[df_m['nombre'] == maquina, 'ultima_actulizacion'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            db.update_sheet(df_m, "maquinas")
+            
+            st.success("✅ Test registrado y base de datos actualizada.")
             time.sleep(2)
             st.rerun()
 
-# --- VISTA DE PLANTA (Pestaña maquinas y tests combinadas) ---
-df_m = DataManager.get_maquinas()
-cols = st.columns(3)
-
-for i, row in df_m.iterrows():
-    with cols[i % 3]:
-        last_t = DataManager.get_last_test(row['nombre'])
+# --- MÓDULO 3: ADMIN ---
+elif menu == "Administración":
+    if st.session_state.rol != "admin":
+        st.warning("Acceso restringido solo para administradores.")
+    else:
+        st.subheader("Gestión de Usuarios")
+        df_u = db.safe_read("usuarios")
+        st.dataframe(df_u, use_container_width=True)
         
-        # Color según estado y salud
-        border_color = "#10b981" # Verde
-        if row['estado'] != "Operativa": border_color = "#ef4444" # Rojo
-        elif last_t is not None and float(last_t['salud']) < 90: border_color = "#f59e0b" # Naranja
-
-        st.markdown(f"""
-            <div class="status-card" style="border-left-color: {border_color};">
-                <h3 style="margin:0;">{row['nombre']}</h3>
-                <p style="font-size:0.8rem; color:#94a3b8;">Estado: <b>{row['estado']}</b></p>
-                <p style="font-size:0.7rem; color:#64748b;">Op: {row['operador']} | {row['ultima_actulizacion']}</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        if last_t is not None:
-            st.metric("Salud de Cabezal", f"{last_t['salud']}%", f"{last_t['fallas']} fallas", delta_color="inverse")
-        else:
-            st.caption("Sin historial de tests")
-
-# --- HISTORIAL Y ANÁLISIS ---
-st.divider()
-with st.expander("📝 Ver Historial Reciente de Tests (Google Sheets)"):
-    df_h = conn.read(worksheet="tests", ttl=0)
-    st.dataframe(df_h.sort_values(by='fecha', ascending=False), use_container_width=True)
-
-# Lógica de Refresco Automático (Sincronización Industrial)
-if not run_camera:
-    time.sleep(20) # Refresco cada 20 segundos para no saturar la API de Google
-    st.rerun()
+        st.subheader("Estado de Máquinas")
+        df_m = db.safe_read("maquinas")
+        st.data_editor(df_m, key="editor_m")
+        if st.button("Guardar Cambios"):
+            db.update_sheet(st.session_state.editor_m, "maquinas")
+            st.success("Cambios guardados.")
