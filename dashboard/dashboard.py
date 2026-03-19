@@ -39,29 +39,23 @@ st.markdown("""
 # =========================================================
 # GESTOR DE DATOS (CONEXIÓN SEGURA)
 # =========================================================
+# Reemplaza tu clase GSheetsDB o la parte de lectura con esto:
 class GSheetsDB:
     def __init__(self):
-        try:
-            self.conn = st.connection("gsheets", type=GSheetsConnection)
-        except Exception as e:
-            st.error(f"Error de conexión inicial: {e}")
+        self.conn = st.connection("gsheets", type=GSheetsConnection)
 
     def safe_read(self, sheet_name):
-        """Lee datos con reintento y manejo de errores HTTP."""
         try:
-            # Forzamos ttl=1 para evitar problemas de caché vieja pero no saturar a 0
-            return self.conn.read(worksheet=sheet_name, ttl="1m")
+            # Intentamos leer la pestaña
+            return self.conn.read(worksheet=sheet_name, ttl="10s")
         except Exception as e:
-            st.error(f"⚠️ Error accediendo a la pestaña '{sheet_name}': {e}")
+            # Si da error 401, lo capturamos para que la app no se detenga
+            if "401" in str(e):
+                st.error(f"🚫 Error de Autorización (401): No tengo permiso para leer la pestaña '{sheet_name}'.")
+                st.info("Asegúrate de que la hoja sea pública o que las credenciales en 'Secrets' sean correctas.")
+            else:
+                st.error(f"Error inesperado: {e}")
             return pd.DataFrame()
-
-    def update_sheet(self, df, sheet_name):
-        try:
-            self.conn.update(worksheet=sheet_name, data=df)
-            return True
-        except Exception as e:
-            st.error(f"❌ Error al guardar en la nube: {e}")
-            return False
 
 db = GSheetsDB()
 
