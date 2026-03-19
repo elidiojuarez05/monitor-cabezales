@@ -171,20 +171,16 @@ def render_machine_card(m_name, db_session, fecha_consulta, suffix=""):
         """, unsafe_allow_html=True)
 
 # =========================================================
-# 6. LÓGICA DE AUTENTICACIÓN (LOGIN) - CORREGIDO
+# 6. LÓGICA DE AUTENTICACIÓN (LOGIN) - CORREGIDO DEFINITIVO
 # =========================================================
 if not st.session_state.authenticated:
     st.title("🔐 Acceso al Sistema")
-    with st.form("login_form"):
-        user_input = st.text_input("Usuario")
-        pass_input = st.text_input("Contraseña", type="password")
-        
-        # EL BOTÓN DEBE ESTAR LIBRE DENTRO DEL 'WITH', NO DENTRO DE UN 'IF'
-        submit_button = st.form_submit_button("Entrar")
-        
-    # La lógica de validación ocurre DESPUÉS de que se cierra el bloque 'with' 
-    # o usando la variable del botón
-    if submit_button:
+    
+    # Quitamos el st.form para evitar el bug del parpadeo con st.stop()
+    user_input = st.text_input("Usuario")
+    pass_input = st.text_input("Contraseña", type="password")
+    
+    if st.button("Entrar", type="primary"):
         user = check_password(db, user_input, pass_input)
         if user:
             st.session_state.update({
@@ -274,45 +270,68 @@ with st.sidebar:
         st.rerun()
 
 # --- LÓGICA DE CÁMARA (MODO FOTO - CORREGIDO) ---
-if st.session_state.authenticated and run_camera:
-    contenedor_estado = st.empty()
-    
-    with contenedor_estado.container():
-        # CAMBIO: Usar 'machine_selected_global' (definida en línea 209 de tu archivo)
-        st.info(f"📸 Preparado para: {machine_selected_global}")
-        foto = st.camera_input("Tome la foto del test", key="camara_nativa")
-    
-    if foto:
+if foto:
         st.session_state.bloquear_refresco = True
         
         with st.spinner("🔍 Optimizando imagen para análisis..."):
             img_bytes = foto.getvalue()
             res = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
             
-            # --- MODO PRO: PERSPECTIVA Y ZOOM ---
-            # Aplicamos el Zoom Digital del slider antes de buscar bordes
-            if zoom_level > 0:
-                h, w = res.shape[:2]
-                m_h, m_w = int(h * (zoom_level / 200)), int(w * (zoom_level / 200))
-                res = res[m_h:h-m_h, m_w:w-m_w]
-
-            # Detección de bordes para auto-enderezado
-            # --- CÓDIGO CORREGIDO ---
+            # --- ESCUDO DE SEGURIDAD TOTAL ---
             if res is not None:
                 try:
-                    # Solo procesamos si 'res' tiene contenido
+                    # 1. Aplicamos el Zoom Digital
+                    if zoom_level > 0:
+                        h, w = res.shape[:2]
+                        m_h, m_w = int(h * (zoom_level / 200)), int(w * (zoom_level / 200))
+                        res = res[m_h:h-m_h, m_w:w-m_w]
+
+                    # 2. Convertimos a grises
                     gray = cv2.cvtColor(res, cv2.COLOR_BGR2GRAY)
                     
-                    # Aquí sigue tu lógica de detección de inyectores...
-                    # (Detección de círculos, dibujo, etc.)
+                    # 3. TODO el procesamiento va AQUÍ ADENTRO del try
+                    edged = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 50, 150)
+                    cnts, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                     
-                except cv2.error as e:
-                    st.error("Error al procesar la imagen de la cámara.")
+                    if cnts:
+                        c = max(cnts, key=cv2.contourArea)
+                        if cv2.contourArea(c) > 5000: # Filtro para evitar ruido
+                            x, y, w, h = cv2.boundingRect(c)
+                            res = res[y:y+h, x:x+w]
+                            st.toast("🎯 Test detectado y centrado")
+
+                    # 4. Guardar temporal y procesar el mapa de inyectores
+                    temp_p = os.path.join(BASE_DIR, "temp_capture.jpg")
+                    cv2.imwrite(temp_p, res)
+                    
+                    config = MACHINE_CONFIGS[machine_selected_global]
+                    mapa, img_res, msg = image_processor.process_test_image_v2(temp_p, config, sensibilidad)
+                    
+                    if mapa is not None:
+                        # 5. Calcular métricas y guardar
+                        salud = (np.sum(mapa) / mapa.size) * 100
+                        fallas = int(np.count_nonzero(mapa == 0))
+                        img_pil = Image.fromarray(cv2.cvtColor(img_res, cv2.COLOR_BGR2RGB))
+                        
+                        ruta_evidencia = guardar_evidencia_fisica(img_pil, machine_selected_global)
+                        
+                        crud.save_test_result(db, machine_selected_global, salud, fallas, mapa.tolist(), ruta_evidencia)
+                        db.commit() 
+                        
+                        contenedor_estado.success(f"✅ ¡{machine_selected_global} Actualizada! ({salud:.1f}%)")
+                        st.balloons()
+                        
+                        st.session_state.bloquear_refresco = False
+                        time.sleep(2)
+                        st.rerun()
+                        
+                except Exception as e:
+                    # Si cualquier cosa falla, lo atrapamos aquí sin que se caiga la app
+                    st.error("❌ La imagen estaba borrosa o la cámara falló. Por favor, intenta tomar la foto de nuevo.")
+                    st.session_state.bloquear_refresco = False
             else:
-                # Si aún no hay imagen, mostramos un mensaje amigable en lugar de un error
-                st.warning("Esperando señal de la cámara... Asegúrate de dar permisos en tu celular.")
-            edged = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 50, 150)
-            cnts, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                st.warning("⚠️ Esperando señal de la cámara... Asegúrate de dar permisos en tu celular.")
+                st.session_state.bloquear_refresco = False
             
             if cnts:
                 c = max(cnts, key=cv2.contourArea)
