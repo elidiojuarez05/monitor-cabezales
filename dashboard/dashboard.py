@@ -65,23 +65,41 @@ db = GSheetsDB()
 
 def check_login(user, pwd):
     df = db.safe_read("usuarios")
-    st.write("Usuarios detectados en la hoja:", df['usuario'].tolist())
-    if df.empty: return False
     
-    # .str.strip() elimina espacios accidentales al inicio o final
-    user = str(user).strip()
-    df['usuario'] = df['usuario'].astype(str).str.strip()
-    
-    match = df[df['usuario'] == user]
-    if not match.empty:
-        # Ciframos la contraseña ingresada para comparar
-        h = hashlib.sha256(pwd.strip().encode()).hexdigest()
-        db_pwd = str(match.iloc[0]['contraseña']).strip()
-        
-        if db_pwd == h:
-            return match.iloc[0]['rol']
-    return False
+    if df.empty:
+        st.error("La hoja de 'usuarios' está vacía o no se pudo leer.")
+        return False
 
+    # --- DIAGNÓSTICO INTELIGENTE ---
+    # Limpiamos los nombres de las columnas para evitar errores de espacios o mayúsculas
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    
+    # Mostramos en pantalla qué columnas encontró realmente (Solo para depurar)
+    # st.write("Columnas detectadas (limpias):", list(df.columns))
+
+    # Verificamos si después de limpiar existe la columna 'usuario'
+    if 'usuario' not in df.columns:
+        st.error(f"No encontré la columna 'usuario'. Columnas actuales: {list(df.columns)}")
+        return False
+
+    # --- PROCESO DE LOGIN ---
+    user_input = str(user).strip().lower()
+    
+    # Buscamos en la columna ya normalizada
+    match = df[df['usuario'].astype(str).str.strip().lower() == user_input]
+    
+    if not match.empty:
+        # Generamos el hash de la contraseña ingresada
+        h_input = hashlib.sha256(pwd.strip().encode()).hexdigest()
+        
+        # Obtenemos la contraseña de la base de datos (columna 'contraseña' o 'contrasena')
+        col_pass = 'contraseña' if 'contraseña' in df.columns else 'contrasena'
+        db_pwd = str(match.iloc[0][col_pass]).strip()
+        
+        if db_pwd == h_input:
+            return match.iloc[0]['rol']
+    
+    return False
 # =========================================================
 # INTERFAZ DE USUARIO
 # =========================================================
