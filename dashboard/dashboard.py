@@ -59,35 +59,32 @@ def guardar_test_gsheet(m_name, salud, fallas, user):
 # =========================================================
 def check_password(username, password):
     try:
-        df_users = conn.read(worksheet="usuarios", ttl="5s")
-        # Forzamos todo a string para evitar errores si el password es solo números en Excel
+        # Forzamos TTL=0 para que no use memoria caché mientras pruebas
+        df_users = conn.read(worksheet="usuarios", ttl="0")
+        
+        # LIMPIEZA TOTAL: Quitamos espacios y pasamos a minúsculas para comparar
+        u_ingresado = str(username).strip().lower()
+        p_ingresado = str(password).strip()
+
+        # Limpiamos también los datos que vienen de Google Sheets
+        df_users['username_clean'] = df_users['username'].astype(str).str.strip().str.lower()
+        df_users['password_clean'] = df_users['password'].astype(str).str.strip()
+
+        # Buscamos coincidencia
         user_match = df_users[
-            (df_users['username'].astype(str) == str(username)) & 
-            (df_users['password'].astype(str) == str(password))
+            (df_users['username_clean'] == u_input) & 
+            (df_users['password_clean'] == p_input)
         ]
-        return user_match.iloc[0] if not user_match.empty else None
-    except:
-        return None
-
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-
-if not st.session_state.authenticated:
-    st.title("🔐 Acceso al Sistema")
-    u_input = st.text_input("Usuario")
-    p_input = st.text_input("Contraseña", type="password")
-    
-    if st.button("Entrar", type="primary"):
-        user_data = check_password(u_input, p_input)
-        if user_data is not None:
-            st.session_state.update({
-                "authenticated": True, 
-                "user_role": user_data['role'], 
-                "username": user_data['username']
-            })
-            st.rerun()
+        
+        if not user_match.empty:
+            return user_match.iloc[0]
         else:
-            st.error("❌ Usuario o contraseña incorrectos. Verifica tu Google Sheet.")
-    st.stop()
+            # Esto te ayudará a saber si leyó la hoja pero no encontró al usuario
+            st.sidebar.warning(f"Usuario '{u_ingresado}' no encontrado en la lista de {len(df_users)} usuarios.")
+            return None
+    except Exception as e:
+        st.error(f"Error crítico de conexión: {e}")
+        return None
 
 # =========================================================
 # 4. DISEÑO DE TARJETAS (MISMA VISUALIZACIÓN ANTERIOR)
