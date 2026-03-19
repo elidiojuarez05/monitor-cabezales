@@ -65,6 +65,7 @@ db = GSheetsDB()
 
 def check_login(user, pwd):
     df = db.safe_read("usuarios")
+    st.write("Usuarios detectados en la hoja:", df['usuario'].tolist())
     if df.empty: return False
     
     # .str.strip() elimina espacios accidentales al inicio o final
