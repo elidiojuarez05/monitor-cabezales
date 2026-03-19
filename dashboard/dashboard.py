@@ -133,19 +133,23 @@ def actualizar_estado_maquina(nombre_maquina, nuevo_estado, operador):
     # Guardamos de vuelta en Google Sheets
     conn.update(worksheet="maquinas", data=df)
 
-def init_admin_user(db_session):
-    admin_user = "admin"
-    hashed_pw = hashlib.sha256("system123".encode()).hexdigest()
-    if not crud.get_user_by_username(db_session, admin_user):
-        crud.create_user(db_session, admin_user, hashed_pw, role="admin")
+def check_password(connection, username, password):
+    try:
+        # Leemos la pestaña de usuarios de tu Google Sheet
+        df_users = connection.read(worksheet="usuarios", ttl="5s")
+        
+        # Buscamos al usuario. Nota: Convertimos a string para evitar errores de formato
+        user_row = df_users[(df_users['username'] == str(username)) & 
+                            (df_users['password'].astype(str) == str(password))]
+        
+        if not user_row.empty:
+            # Si lo encuentra, devolvemos la fila con sus datos (username, role, etc.)
+            return user_row.iloc[0]
+        return None
+    except Exception as e:
+        st.error(f"Error al conectar con la lista de usuarios en Google: {e}")
+        return None
 
-init_admin_user(db)
-
-def check_password(db_session, username, password):
-    user = crud.get_user_by_username(db_session, username)
-    if user and user.password == hashlib.sha256(password.encode()).hexdigest():
-        return user
-    return None
 
 def guardar_evidencia_fisica(imagen_pil, nombre_maquina):
     base_path = os.path.join(EVIDENCIAS_PATH, nombre_maquina)
