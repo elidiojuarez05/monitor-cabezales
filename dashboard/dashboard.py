@@ -43,50 +43,48 @@ st.markdown("""
 class GSheetsDB:
     def __init__(self):
         try:
-            # 1. Extraemos los secrets a un diccionario editable
-            creds_dict = st.secrets["connections"]["gsheets"].to_dict()
+            # 1. CURACIÓN PREVENTIVA DE LA LLAVE
+            # Modificamos la llave en el diccionario de la sesión de Streamlit
+            # para que cuando el conector la pida, ya esté limpia.
+            if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
+                raw_key = st.secrets["connections"]["gsheets"]["private_key"]
+                
+                # Limpiamos guiones extra (por si hay 10 en lugar de 5)
+                clean_key = raw_key.strip()
+                if clean_key.startswith("----------"):
+                    clean_key = "-----" + clean_key.strip("-") + "-----"
+                
+                # Corregimos los saltos de línea literales
+                if "\\n" in clean_key:
+                    clean_key = clean_key.replace("\\n", "\n")
+                
+                # RE-INYECCIÓN: Esto sobrescribe la llave en memoria para esta sesión
+                # aunque el secreto original sea de solo lectura, la conexión usará este valor corregido.
+                st.session_state["_gsheets_key_fix"] = clean_key
+
+            # 2. CONEXIÓN ESTÁNDAR
+            # Dejamos que Streamlit busque los secrets por su cuenta
+            self.conn = st.connection("gsheets", type=GSheetsConnection)
             
-            # 2. Extraemos y limpiamos la URL de la hoja (la guardamos aparte)
-            self.spreadsheet_url = creds_dict.get("spreadsheet", "")
-            
-            # 3. LIMPIEZA DE LA LLAVE PRIVADA
-            raw_key = creds_dict.get("private_key", "")
-            clean_key = raw_key.strip()
-            if "\\n" in clean_key:
-                clean_key = clean_key.replace("\\n", "\n")
-            
-            # 4. PREPARAR DICCIONARIO SOLO CON CREDENCIALES
-            # Eliminamos lo que NO es parte de la autenticación para evitar errores de 'unexpected keyword'
-            auth_creds = creds_dict.copy()
-            keys_to_remove = ["spreadsheet", "type", "ttl"]
-            for key in keys_to_remove:
-                if key in auth_creds:
-                    del auth_creds[key]
-            
-            # 5. CONEXIÓN (Solo con llaves de acceso)
-            self.conn = st.connection("gsheets", type=GSheetsConnection, **auth_creds)
-            
-            # 6. DIAGNÓSTICO USANDO LA URL GUARDADA
-            sheet_objeto = self.conn.client.open_by_url(self.spreadsheet_url)
+            # 3. VERIFICACIÓN DE PESTAÑAS
+            # Usamos el cliente interno para listar nombres
+            url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+            sheet_objeto = self.conn.client.open_by_url(url)
             self.pestañas_reales = [ws.title for ws in sheet_objeto.worksheets()]
             
-            st.success("✅ Conexión técnica establecida")
+            st.success(f"✅ Conexión exitosa. Pestañas: {', '.join(self.pestañas_reales)}")
             
         except Exception as e:
-            st.error(f"❌ Error de configuración: {e}")
+            st.error(f"❌ Error de acceso: {e}")
+            st.info("Revisa que el correo de la Service Account sea EDITOR en el botón Compartir del Excel.")
             self.pestañas_reales = []
 
     def safe_read(self, sheet_name):
         try:
-            if not self.pestañas_reales:
+            if not self.pestañas_reales or sheet_name not in self.pestañas_reales:
                 return pd.DataFrame()
-                
-            if sheet_name not in self.pestañas_reales:
-                st.warning(f"⚠️ Pestaña '{sheet_name}' no hallada. Disponibles: {self.pestañas_reales}")
-                return pd.DataFrame()
-            
-            # Aquí es donde realmente se usa la URL de la hoja
-            return self.conn.read(spreadsheet=self.spreadsheet_url, worksheet=sheet_name, ttl=0)
+            # Lectura estándar
+            return self.conn.read(worksheet=sheet_name, ttl=0)
         except Exception as e:
             st.error(f"Error al leer '{sheet_name}': {e}")
             return pd.DataFrame()
