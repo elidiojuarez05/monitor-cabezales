@@ -2,7 +2,7 @@ streamlit
 pandas
 numpy
 opencv-python-headless
-streamlit-gsheets
+st-gsheets-connection
 streamlit-cropper
 streamlit-webrtc
 Pillow
