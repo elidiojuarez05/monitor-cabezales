@@ -83,18 +83,39 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 class GSheetsDB:
     def __init__(self):
         try:
-            # Conexión limpia: Streamlit tomará los datos de los Secrets automáticamente
-            self.conn = st.connection("gsheets", type=GSheetsConnection)
-            # Guardamos la URL para las lecturas
-            self.url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+            # 1. Cargamos los secretos
+            creds = st.secrets["connections"]["gsheets"]
+            
+            # 2. Creamos el diccionario de la cuenta de servicio manualmente
+            # Esto asegura que la llave privada se lea correctamente
+            service_account_info = {
+                "type": creds["type"],
+                "project_id": creds["project_id"],
+                "private_key_id": creds["private_key_id"],
+                "private_key": creds["private_key"],
+                "client_email": creds["client_email"],
+                "client_id": creds["client_id"],
+                "auth_uri": creds["auth_uri"],
+                "token_uri": creds["token_uri"],
+                "auth_provider_x509_cert_url": creds["auth_provider_x509_cert_url"],
+                "client_x509_cert_url": creds["client_x509_cert_url"]
+            }
+
+            # 3. Establecemos la conexión pasando explícitamente la info
+            self.conn = st.connection(
+                "gsheets", 
+                type=GSheetsConnection, 
+                service_account_info=service_account_info
+            )
+            self.url = creds["spreadsheet"]
+            
         except Exception as e:
-            st.error(f"❌ Error de Conexión: {e}")
+            st.error(f"❌ Error crítico de configuración: {e}")
             self.conn = None
 
     def safe_read(self, sheet_name):
         if not self.conn: return pd.DataFrame()
         try:
-            # Leemos la pestaña usando la URL de los secrets
             return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
         except Exception as e:
             st.error(f"Error al leer la pestaña '{sheet_name}': {e}")
