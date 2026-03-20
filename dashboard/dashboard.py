@@ -83,47 +83,27 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 class GSheetsDB:
     def __init__(self):
         try:
-            # 1. Extraemos la llave cruda de los Secrets
-            raw_key = st.secrets["connections"]["gsheets"]["private_key"]
+            # NO PASAR ARGUMENTOS AQUÍ. 
+            # La librería leerá automáticamente la sección [connections.gsheets] de tus Secrets.
+            self.conn = st.connection("gsheets", type=GSheetsConnection)
             
-            # 2. Limpieza profunda: eliminamos espacios accidentales y normalizamos saltos de línea
-            # Esto corrige el error de "InvalidByte" o "Padding"
-            clean_key = raw_key.strip().replace("\\n", "\n")
-            
-            # 3. Construimos el diccionario de credenciales manualmente para asegurar control total
-            s = st.secrets["connections"]["gsheets"]
-            service_account_info = {
-                "type": s["type"],
-                "project_id": s["project_id"],
-                "private_key_id": s["private_key_id"],
-                "private_key": clean_key,
-                "client_email": s["client_email"],
-                "client_id": s["client_id"],
-                "auth_uri": s["auth_uri"],
-                "token_uri": s["token_uri"],
-                "auth_provider_x509_cert_url": s["auth_provider_x509_cert_url"],
-                "client_x509_cert_url": s["client_x509_cert_url"]
-            }
-
-            # 4. Conectamos pasando la info procesada
-            self.conn = st.connection(
-                "gsheets", 
-                type=GSheetsConnection, 
-                service_account_info=service_account_info
-            )
-            self.url = s["spreadsheet"]
+            # Recuperamos la URL de los secrets para usarla en las funciones de lectura
+            self.url = st.secrets["connections"]["gsheets"]["spreadsheet"]
         except Exception as e:
-            st.error(f"❌ Error Crítico de Configuración: {e}")
+            st.error(f"❌ Error al inicializar conexión: {e}")
             self.conn = None
 
     def safe_read(self, sheet_name):
-        if not self.conn: return pd.DataFrame()
+        if self.conn is None:
+            return pd.DataFrame()
         try:
+            # Leemos la pestaña especificando URL y nombre
             return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
         except Exception as e:
-            st.error(f"Error técnico en pestaña '{sheet_name}': {e}")
+            st.error(f"Error en pestaña '{sheet_name}': {e}")
             return pd.DataFrame()
 
+# Crear la instancia global inmediatamente
 db = GSheetsDB()
             
 
