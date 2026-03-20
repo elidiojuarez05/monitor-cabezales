@@ -2,11 +2,6 @@ streamlit
 pandas
 numpy
 opencv-python-headless
+psycopg2-binary
+sqlalchemy
 st-gsheets-connection
-streamlit-cropper
-streamlit-webrtc
-Pillow
-qrcode
-validators
-flask
-flask-socketio
