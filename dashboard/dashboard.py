@@ -38,29 +38,32 @@ st.markdown("""
 class GSheetsDB:
     def __init__(self):
         try:
-            # 1. Extraemos los secrets a un diccionario para poder manipularlos
+            # 1. Cargamos los secretos a un diccionario
             creds = st.secrets["connections"]["gsheets"].to_dict()
             
-            # 2. LIMPIADOR DE BARRA INVERTIDA (Solución al error 92)
+            # 2. LIMPIEZA MANUAL DE LA LLAVE (Solución al error PEM / Byte 92)
             if "private_key" in creds:
-                # Reemplazamos la doble barra o el texto literal por el salto de línea real
+                # Convertimos el texto literal \n en saltos de línea reales
                 creds["private_key"] = creds["private_key"].replace("\\n", "\n").strip()
             
-            # 3. Conectamos pasando el diccionario ya limpio
-            # Filtramos 'spreadsheet' y 'type' porque st.connection los maneja aparte
+            # 3. Extraemos la URL para usarla en cada lectura
+            self.url = creds.get("spreadsheet")
+            
+            # 4. Filtramos argumentos para el constructor de la conexión
+            # Dejamos solo lo que la API de Google necesita para autenticar
             conn_args = {k: v for k, v in creds.items() if k not in ["spreadsheet", "type"]}
             
             self.conn = st.connection("gsheets", type=GSheetsConnection, **conn_args)
-            self.url = creds.get("spreadsheet")
-            
+            st.success("✅ Conexión técnica establecida")
         except Exception as e:
             st.error(f"❌ Error de configuración: {e}")
             self.conn = None
 
     def safe_read(self, sheet_name):
-        if not self.conn: return pd.DataFrame()
+        if not self.conn:
+            return pd.DataFrame() # Asegúrate de tener import pandas as pd
         try:
-            # Usamos la URL guardada y el nombre de la pestaña
+            # Leemos usando la URL directa y el nombre de la pestaña
             return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
         except Exception as e:
             st.error(f"Error al leer '{sheet_name}': {e}")
