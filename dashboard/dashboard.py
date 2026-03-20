@@ -83,22 +83,47 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 class GSheetsDB:
     def __init__(self):
         try:
-            # Aseguramos que la conexión se cree globalmente
-            self.conn = st.connection("gsheets", type=GSheetsConnection)
-            self.url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+            # 1. Extraemos la llave cruda de los Secrets
+            raw_key = st.secrets["connections"]["gsheets"]["private_key"]
+            
+            # 2. Limpieza profunda: eliminamos espacios accidentales y normalizamos saltos de línea
+            # Esto corrige el error de "InvalidByte" o "Padding"
+            clean_key = raw_key.strip().replace("\\n", "\n")
+            
+            # 3. Construimos el diccionario de credenciales manualmente para asegurar control total
+            s = st.secrets["connections"]["gsheets"]
+            service_account_info = {
+                "type": s["type"],
+                "project_id": s["project_id"],
+                "private_key_id": s["private_key_id"],
+                "private_key": clean_key,
+                "client_email": s["client_email"],
+                "client_id": s["client_id"],
+                "auth_uri": s["auth_uri"],
+                "token_uri": s["token_uri"],
+                "auth_provider_x509_cert_url": s["auth_provider_x509_cert_url"],
+                "client_x509_cert_url": s["client_x509_cert_url"]
+            }
+
+            # 4. Conectamos pasando la info procesada
+            self.conn = st.connection(
+                "gsheets", 
+                type=GSheetsConnection, 
+                service_account_info=service_account_info
+            )
+            self.url = s["spreadsheet"]
         except Exception as e:
-            st.error(f"Error de conexión: {e}")
+            st.error(f"❌ Error Crítico de Configuración: {e}")
+            self.conn = None
 
     def safe_read(self, sheet_name):
+        if not self.conn: return pd.DataFrame()
         try:
-            # Leemos la pestaña directamente
             return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
         except Exception as e:
-            # Si el padding falla aquí, intentamos una limpieza manual del secreto
-            st.error(f"Error de formato en la llave (Padding): {e}")
+            st.error(f"Error técnico en pestaña '{sheet_name}': {e}")
             return pd.DataFrame()
 
-# Creamos la instancia global para evitar el NameError
 db = GSheetsDB()
             
 
