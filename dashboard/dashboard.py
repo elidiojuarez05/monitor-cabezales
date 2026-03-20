@@ -38,29 +38,33 @@ st.markdown("""
 class GSheetsDB:
     def __init__(self):
         try:
-            # Conexión directa usando st.secrets
-            self.conn = st.connection("gsheets", type=GSheetsConnection)
+            # 1. Extraemos los secrets a un diccionario para poder manipularlos
+            creds = st.secrets["connections"]["gsheets"].to_dict()
+            
+            # 2. LIMPIADOR DE BARRA INVERTIDA (Solución al error 92)
+            if "private_key" in creds:
+                # Reemplazamos la doble barra o el texto literal por el salto de línea real
+                creds["private_key"] = creds["private_key"].replace("\\n", "\n").strip()
+            
+            # 3. Conectamos pasando el diccionario ya limpio
+            # Filtramos 'spreadsheet' y 'type' porque st.connection los maneja aparte
+            conn_args = {k: v for k, v in creds.items() if k not in ["spreadsheet", "type"]}
+            
+            self.conn = st.connection("gsheets", type=GSheetsConnection, **conn_args)
+            self.url = creds.get("spreadsheet")
+            
         except Exception as e:
-            st.error(f"❌ Error de conexión: {e}")
+            st.error(f"❌ Error de configuración: {e}")
+            self.conn = None
 
     def safe_read(self, sheet_name):
+        if not self.conn: return pd.DataFrame()
         try:
-            # ttl=0 asegura que traiga datos frescos del Excel
-            return self.conn.read(worksheet=sheet_name, ttl=0)
+            # Usamos la URL guardada y el nombre de la pestaña
+            return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
         except Exception as e:
-            st.error(f"Error al leer pestaña '{sheet_name}': {e}")
+            st.error(f"Error al leer '{sheet_name}': {e}")
             return pd.DataFrame()
-
-    def update_sheet(self, df, sheet_name):
-        try:
-            # Método oficial para escribir en la hoja
-            self.conn.update(worksheet=sheet_name, data=df)
-            return True
-        except Exception as e:
-            st.error(f"Error al guardar en '{sheet_name}': {e}")
-            return False
-
-db = GSheetsDB()
 
 # =========================================================
 # LÓGICA DE LOGIN
