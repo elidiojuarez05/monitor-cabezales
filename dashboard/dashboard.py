@@ -43,35 +43,34 @@ st.markdown("""
 class GSheetsDB:
     def __init__(self):
         try:
-            # 1. Extraemos la configuración de los secrets a un diccionario editable
+            # 1. Extraemos los secrets a un diccionario editable
             creds_dict = st.secrets["connections"]["gsheets"].to_dict()
             
-            # 2. LIMPIEZA DE LA LLAVE (SOLUCIÓN AL ERROR PEM)
+            # 2. Extraemos y limpiamos la URL de la hoja (la guardamos aparte)
+            self.spreadsheet_url = creds_dict.get("spreadsheet", "")
+            
+            # 3. LIMPIEZA DE LA LLAVE PRIVADA
             raw_key = creds_dict.get("private_key", "")
             clean_key = raw_key.strip()
-            
-            # Corregimos los saltos de línea si vienen como texto literal
             if "\\n" in clean_key:
                 clean_key = clean_key.replace("\\n", "\n")
             
-            # Actualizamos la llave limpia en nuestro diccionario
-            creds_dict["private_key"] = clean_key
-
-            # 3. EVITAR EL ERROR DE "MULTIPLE VALUES FOR KEYWORD ARGUMENT 'TYPE'"
-            # Eliminamos 'type' del diccionario porque ya lo pasamos como primer argumento
-            if "type" in creds_dict:
-                del creds_dict["type"]
-
-            # 4. CONEXIÓN MANUAL
-            # Ahora sí, pasamos GSheetsConnection y el resto de los parámetros sin duplicados
-            self.conn = st.connection("gsheets", type=GSheetsConnection, **creds_dict)
+            # 4. PREPARAR DICCIONARIO SOLO CON CREDENCIALES
+            # Eliminamos lo que NO es parte de la autenticación para evitar errores de 'unexpected keyword'
+            auth_creds = creds_dict.copy()
+            keys_to_remove = ["spreadsheet", "type", "ttl"]
+            for key in keys_to_remove:
+                if key in auth_creds:
+                    del auth_creds[key]
             
-            # 5. DIAGNÓSTICO DE PESTAÑAS
-            url = creds_dict.get("spreadsheet")
-            sheet_objeto = self.conn.client.open_by_url(url)
+            # 5. CONEXIÓN (Solo con llaves de acceso)
+            self.conn = st.connection("gsheets", type=GSheetsConnection, **auth_creds)
+            
+            # 6. DIAGNÓSTICO USANDO LA URL GUARDADA
+            sheet_objeto = self.conn.client.open_by_url(self.spreadsheet_url)
             self.pestañas_reales = [ws.title for ws in sheet_objeto.worksheets()]
             
-            st.success("✅ Conexión establecida con éxito")
+            st.success("✅ Conexión técnica establecida")
             
         except Exception as e:
             st.error(f"❌ Error de configuración: {e}")
@@ -79,14 +78,15 @@ class GSheetsDB:
 
     def safe_read(self, sheet_name):
         try:
-            # Si no hay pestañas detectadas, devolvemos vacío
             if not self.pestañas_reales:
                 return pd.DataFrame()
                 
             if sheet_name not in self.pestañas_reales:
-                st.warning(f"⚠️ La pestaña '{sheet_name}' no existe. Disponibles: {self.pestañas_reales}")
+                st.warning(f"⚠️ Pestaña '{sheet_name}' no hallada. Disponibles: {self.pestañas_reales}")
                 return pd.DataFrame()
-            return self.conn.read(worksheet=sheet_name, ttl=0)
+            
+            # Aquí es donde realmente se usa la URL de la hoja
+            return self.conn.read(spreadsheet=self.spreadsheet_url, worksheet=sheet_name, ttl=0)
         except Exception as e:
             st.error(f"Error al leer '{sheet_name}': {e}")
             return pd.DataFrame()
