@@ -176,6 +176,9 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
 # =========================================================
 # 7. LÓGICA DE AUTENTICACIÓN (LOGIN)
 # =========================================================
+# =========================================================
+# 7. LÓGICA DE AUTENTICACIÓN (LOGIN CORREGIDA)
+# =========================================================
 if not st.session_state.authenticated:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -186,16 +189,35 @@ if not st.session_state.authenticated:
         pass_input = st.text_input("Contraseña / PIN", type="password")
         
         if st.button("Autenticar", type="primary", use_container_width=True):
-            user = GSheetsCRUD.get_user_by_username(user_input)
-            if user and user.password == hashlib.sha256(pass_input.encode()).hexdigest():
-                st.session_state.update({
-                    "authenticated": True, 
-                    "user_role": user.role, 
-                    "username": user.username
-                })
-                st.rerun()
+            # Usamos la base de datos ya conectada
+            df_usuarios = db.safe_read("usuarios")
+            
+            if not df_usuarios.empty:
+                # Normalizar nombres de columnas
+                df_usuarios.columns = [str(c).strip().lower() for c in df_usuarios.columns]
+                col_pass = 'contraseña' if 'contraseña' in df_usuarios.columns else 'contrasena'
+                
+                # Buscar al usuario
+                user_match = df_usuarios[df_usuarios['usuario'].astype(str).str.strip().lower() == user_input.strip().lower()]
+                
+                if not user_match.empty:
+                    # Validar contraseña con Hash SHA256
+                    hash_input = hashlib.sha256(pass_input.encode()).hexdigest()
+                    db_password = str(user_match.iloc[0][col_pass]).strip()
+                    
+                    if db_password == hash_input:
+                        st.session_state.update({
+                            "authenticated": True, 
+                            "user_role": str(user_match.iloc[0]['rol']), 
+                            "username": str(user_match.iloc[0]['usuario'])
+                        })
+                        st.rerun()
+                    else:
+                        st.error("❌ Contraseña incorrecta.")
+                else:
+                    st.error("❌ El usuario no existe.")
             else:
-                st.error("Credenciales incorrectas o problema de conexión con GSheets.")
+                st.error("❌ Error de conexión: No se pudo leer la tabla de usuarios.")
     st.stop()
 
 # =========================================================
