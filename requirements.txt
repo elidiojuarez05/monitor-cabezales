@@ -1,11 +1,7 @@
 streamlit
-streamlit-cropper
-streamlit-webrtc
-opencv-python-headless
 pandas
 numpy
-SQLAlchemy
+opencv-python-headless
+gspread
+google-auth
 Pillow
-qrcode
-fpdf
-st-gsheets-connection
