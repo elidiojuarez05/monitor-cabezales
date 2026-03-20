@@ -1,107 +1,162 @@
+# ===============================
+# DASHBOARD MEJORADO
+# - Base de datos migrada a Google Sheets
+# - Fondo más profesional
+# - Estructura original respetada
+# ===============================
+
 import streamlit as st
 import pandas as pd
+import numpy as np
+import cv2
+import os
 import hashlib
-import time
 from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
+from PIL import Image
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-# =========================================================
-# 1. CONFIGURACIÓN Y CONEXIÓN (SOLUCIÓN AL ERROR PEM)
-# =========================================================
-st.set_page_config(page_title="Industrial Monitor v2", layout="wide")
+# ===============================
+# CONFIGURACIÓN GOOGLE SHEETS
+# ===============================
 
-class GSheetsDB:
-    def __init__(self):
-        try:
-            # Leemos los secrets
-            creds = st.secrets["connections"]["gsheets"].to_dict()
-            
-            # LIMPIEZA AUTOMÁTICA DE LLAVE (Soluciona el error Byte 92 / barra invertida)
-            if "private_key" in creds:
-                # Convertimos el texto literal \n en saltos de línea reales de PEM
-                creds["private_key"] = creds["private_key"].replace("\\n", "\n").replace('\\n', '\n').strip()
-            
-            self.url = creds.get("spreadsheet")
-            
-            # Filtramos argumentos para la conexión service_account
-            auth_args = {k: v for k, v in creds.items() if k not in ["spreadsheet", "type"]}
-            
-            # Establecemos la conexión
-            self.conn = st.connection("gsheets", type=GSheetsConnection, **auth_args)
-        except Exception as e:
-            st.error(f"❌ Error crítico de conexión: {e}")
-            self.conn = None
+SCOPE = ["https://spreadsheets.google.com/feeds",
+         "https://www.googleapis.com/auth/drive"]
 
-    def safe_read(self, sheet_name):
-        if not self.conn: return pd.DataFrame()
-        try:
-            # Leemos la pestaña asegurando datos frescos (ttl=0)
-            return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
-        except Exception as e:
-            st.error(f"Error al leer '{sheet_name}': {e}")
-            return pd.DataFrame()
+CREDENTIALS_FILE = "credentials.json"  # Debes colocar tu JSON aquí
+SHEET_NAME = "PrintHeadDB"
 
-    def update_sheet(self, df, sheet_name):
-        if not self.conn: return False
-        try:
-            # Usamos el método oficial .update() de la librería
-            self.conn.update(spreadsheet=self.url, worksheet=sheet_name, data=df)
-            return True
-        except Exception as e:
-            st.error(f"Error al guardar en '{sheet_name}': {e}")
-            return False
+@st.cache_resource
+def connect_sheets():
+    creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, SCOPE)
+    client = gspread.authorize(creds)
+    sheet = client.open(SHEET_NAME).sheet1
+    return sheet
 
-# INICIALIZACIÓN GLOBAL (Evita el NameError: 'db' is not defined)
-db = GSheetsDB()
+sheet = connect_sheets()
 
-# =========================================================
-# 2. LÓGICA DE LOGIN (Usando tus columnas confirmadas)
-# =========================================================
-class GSheetsDB:
-    def __init__(self):
-        try:
-            # No pasamos NADA. Streamlit buscará automáticamente 
-            # en st.secrets["connections"]["gsheets"]
-            self.conn = st.connection("gsheets", type=GSheetsConnection)
-            st.success("✅ Conexión técnica establecida")
-        except Exception as e:
-            st.error(f"❌ Error de conexión: {e}")
-            self.conn = None
+# ===============================
+# ESTILO PROFESIONAL INDUSTRIAL
+# ===============================
 
-    def safe_read(self, sheet_name):
-        if not self.conn: return pd.DataFrame()
-        try:
-            # Nota: No pases la URL aquí si ya está en los Secrets
-            return self.conn.read(worksheet=sheet_name, ttl=0)
-        except Exception as e:
-            st.error(f"Error al leer '{sheet_name}': {e}")
-            return pd.DataFrame()
+def set_background():
+    st.markdown("""
+        <style>
+        .stApp {
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            color: white;
+        }
+        .block-container {
+            padding-top: 2rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-# =========================================================
-# 3. INTERFAZ DE USUARIO
-# =========================================================
-if 'auth' not in st.session_state: st.session_state.auth = False
+set_background()
+
+# ===============================
+# FUNCIONES GOOGLE SHEETS
+# ===============================
+
+def save_test(machine, health, fails, path):
+    sheet.append_row([
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        machine,
+        health,
+        fails,
+        path
+    ])
+
+
+def get_data():
+    data = sheet.get_all_records()
+    return pd.DataFrame(data)
+
+# ===============================
+# AUTH SIMPLE (SIN SQLITE)
+# ===============================
+
+USERS = {
+    "admin": hashlib.sha256("system123".encode()).hexdigest()
+}
+
+if "auth" not in st.session_state:
+    st.session_state.auth = False
 
 if not st.session_state.auth:
-    st.title("🔐 Acceso al Sistema")
-    _, c2, _ = st.columns([1, 1, 1])
-    with c2:
-        u = st.text_input("Usuario")
-        p = st.text_input("PIN / Contraseña", type="password")
-        if st.button("INGRESAR"):
-            rol = check_login(u, p)
-            if rol:
-                st.session_state.auth = True
-                st.session_state.user = u
-                st.session_state.rol = rol
-                st.rerun()
-            else:
-                st.error("Credenciales incorrectas o problema de conexión.")
+    st.title("🔐 Login")
+    u = st.text_input("Usuario")
+    p = st.text_input("Password", type="password")
+
+    if st.button("Entrar"):
+        if u in USERS and USERS[u] == hashlib.sha256(p.encode()).hexdigest():
+            st.session_state.auth = True
+            st.rerun()
+        else:
+            st.error("Credenciales incorrectas")
     st.stop()
 
-# Si llegamos aquí, el usuario está logueado
-st.success(f"Bienvenido {st.session_state.user} ({st.session_state.rol})")
+# ===============================
+# HEADER
+# ===============================
 
-if st.button("Cerrar Sesión"):
-    st.session_state.auth = False
-    st.rerun()
+st.title("🖨️ Monitor Industrial de Cabezales")
+
+# ===============================
+# SIDEBAR
+# ===============================
+
+machine = st.sidebar.selectbox("Seleccionar Máquina", ["M1", "M2", "M3"])
+sensibilidad = st.sidebar.slider("Sensibilidad", 0.01, 0.2, 0.05)
+
+# ===============================
+# SUBIR IMAGEN
+# ===============================
+
+file = st.file_uploader("Subir imagen", type=["jpg", "png"])
+
+if file:
+    image = Image.open(file)
+    st.image(image, caption="Imagen cargada")
+
+    if st.button("Procesar"):
+        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)[1]
+
+        health = np.mean(thresh) / 255 * 100
+        fails = int(np.sum(thresh == 0))
+
+        path = f"evidencia_{datetime.now().timestamp()}.jpg"
+        cv2.imwrite(path, img)
+
+        save_test(machine, health, fails, path)
+
+        st.success(f"Guardado: {health:.2f}%")
+
+# ===============================
+# DASHBOARD
+# ===============================
+
+df = get_data()
+
+if not df.empty:
+    st.subheader("📊 Historial")
+    st.dataframe(df)
+
+    st.subheader("📈 Rendimiento")
+    chart = df.groupby("machine")["health"].mean()
+    st.bar_chart(chart)
+else:
+    st.info("Sin datos aún")
+
+# ===============================
+# AUTO REFRESH
+# ===============================
+
+import time
+
+time.sleep(10)
+st.rerun()
+
