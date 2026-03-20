@@ -43,33 +43,49 @@ st.markdown("""
 class GSheetsDB:
     def __init__(self):
         try:
-            # 1. Conectamos
+            # --- LÓGICA DE CURACIÓN DE LLAVE ---
+            # Si la llave viene con saltos de línea literales o errores de escape, los corregimos aquí
+            if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
+                raw_key = st.secrets["connections"]["gsheets"]["private_key"]
+                
+                # Paso A: Eliminar espacios accidentales al inicio/final
+                clean_key = raw_key.strip()
+                
+                # Paso B: Corregir el error común de interpretación de \n
+                # Si el sistema lee los '\' y 'n' como texto, los convertimos a saltos de línea reales
+                if "\\n" in clean_key:
+                    clean_key = clean_key.replace("\\n", "\n")
+                
+                # Paso C: Re-inyectar la llave limpia en la configuración de la sesión
+                st.secrets["connections"]["gsheets"]["private_key"] = clean_key
+
+            # --- CONEXIÓN ---
             self.conn = st.connection("gsheets", type=GSheetsConnection)
             
-            # 2. DIAGNÓSTICO: Vamos a ver qué pestañas existen realmente
-            # Accedemos al cliente interno para listar los nombres
+            # --- DIAGNÓSTICO DE PESTAÑAS ---
             url = st.secrets["connections"]["gsheets"]["spreadsheet"]
             sheet_objeto = self.conn.client.open_by_url(url)
-            pestañas_reales = [ws.title for ws in sheet_objeto.worksheets()]
-            
-            st.write("🔍 Diagnóstico de Pestañas:")
-            st.info(f"Pestañas encontradas en tu Google Sheet: {pestañas_reales}")
+            self.pestañas_reales = [ws.title for ws in sheet_objeto.worksheets()]
             
         except Exception as e:
-            st.error(f"Error técnico en la conexión: {e}")
+            st.error(f"❌ Error crítico de configuración: {e}")
+            st.info("Revisa que la private_key en Secrets no tenga espacios al inicio.")
+            self.pestañas_reales = []
 
     def safe_read(self, sheet_name):
         try:
-            # Intentamos leer la pestaña solicitada
-            # Usamos ttl=0 para asegurarnos de ver los datos reales ahora mismo
-            df = self.conn.read(worksheet=sheet_name, ttl=0)
-            return df
+            # Verificamos si la pestaña existe antes de intentar leerla
+            if sheet_name not in self.pestañas_reales:
+                st.warning(f"⚠️ La pestaña '{sheet_name}' no existe. Disponibles: {self.pestañas_reales}")
+                return pd.DataFrame()
+                
+            return self.conn.read(worksheet=sheet_name, ttl=0)
         except Exception as e:
-            st.warning(f"No se pudo leer la pestaña '{sheet_name}'. Detalles: {e}")
+            st.error(f"Error al leer '{sheet_name}': {e}")
             return pd.DataFrame()
 
+# Inicializar
 db = GSheetsDB()
-
 # =========================================================
 # LÓGICA DE NEGOCIO
 # =========================================================
