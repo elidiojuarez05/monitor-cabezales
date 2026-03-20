@@ -57,32 +57,53 @@ db = GSheetsDB()
 # =========================================================
 # 2. LÓGICA DE LOGIN (Usando tus columnas confirmadas)
 # =========================================================
-def check_login(user, pwd):
-    df = db.safe_read("usuarios")
-    
-    if df.empty:
-        return False
+class GSheetsDB:
+    def __init__(self):
+        try:
+            # 1. Obtenemos todos los datos de los secrets
+            creds = st.secrets["connections"]["gsheets"].to_dict()
+            
+            # 2. Limpieza de la llave PEM (Solución error anterior)
+            if "private_key" in creds:
+                p_key = creds["private_key"].replace("\\n", "\n").replace('\\n', '\n').strip()
+                creds["private_key"] = p_key
 
-    # Normalizamos nombres de columnas: usuario, contraseña, rol
-    df.columns = [str(c).strip().lower() for c in df.columns]
-    
-    user_input = str(user).strip().lower()
-    
-    # Buscamos al usuario en la columna 'usuario'
-    match = df[df['usuario'].astype(str).str.strip().lower() == user_input]
-    
-    if not match.empty:
-        # Validamos la columna 'contraseña'
-        col_pass = 'contraseña' if 'contraseña' in df.columns else 'contrasena'
-        db_pwd = str(match.iloc[0][col_pass]).strip()
-        
-        # Generamos hash de la entrada
-        h_input = hashlib.sha256(pwd.strip().encode()).hexdigest()
-        
-        if db_pwd == h_input:
-            return str(match.iloc[0]['rol']).lower()
-    
-    return False
+            # 3. FILTRO CRÍTICO: Solo pasamos los argumentos que la API de Google espera
+            # Esto evita el error de "unexpected keyword argument 'project_id'"
+            google_auth_keys = [
+                "type", "project_id", "private_key_id", "private_key", 
+                "client_email", "client_id", "auth_uri", "token_uri", 
+                "auth_provider_x509_cert_url", "client_x509_cert_url", "universe_domain"
+            ]
+            
+            # Creamos un diccionario solo con lo necesario para las credenciales
+            # Nota: 'spreadsheet' y 'type' se manejan de forma especial en st.connection
+            service_account_info = {k: v for k, v in creds.items() if k in google_auth_keys}
+            
+            self.url = creds.get("spreadsheet")
+
+            # 4. Establecemos la conexión pasando el diccionario de credenciales
+            # Usamos service_account_info como las credenciales del cliente
+            self.conn = st.connection(
+                "gsheets", 
+                type=GSheetsConnection, 
+                service_account_info=service_account_info
+            )
+            
+            st.success("✅ Conexión establecida correctamente")
+            
+        except Exception as e:
+            st.error(f"❌ Error crítico de conexión: {e}")
+            self.conn = None
+
+    def safe_read(self, sheet_name):
+        if not self.conn: return pd.DataFrame()
+        try:
+            # Forzamos la lectura desde la URL configurada
+            return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
+        except Exception as e:
+            st.error(f"Error al leer '{sheet_name}': {e}")
+            return pd.DataFrame()
 
 # =========================================================
 # 3. INTERFAZ DE USUARIO
