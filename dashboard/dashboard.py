@@ -50,7 +50,7 @@ def connect_sheets():
         scopes=SCOPE
         )
 
-        client = gspread.authorize(creds)
+    client = gspread.authorize(creds)
     return client.open("PrintHeadDB").sheet1
 
 sheet = connect_sheets()
