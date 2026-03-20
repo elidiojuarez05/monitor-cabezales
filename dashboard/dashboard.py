@@ -80,82 +80,27 @@ except ImportError as e:
 # Establecer conexión con GSheets (requiere secrets.toml)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-class GSheetsCRUD:
-    """Clase para reemplazar SQLite y manejar operaciones CRUD directo en GSheets."""
-    
-    @staticmethod
-    def _read_sheet(sheet_name):
+class GSheetsDB:
+    def __init__(self):
         try:
-            return conn.read(worksheet=sheet_name, ttl=5)
-        except Exception:
+            # Conexión limpia: Streamlit tomará los datos de los Secrets automáticamente
+            self.conn = st.connection("gsheets", type=GSheetsConnection)
+            # Guardamos la URL para las lecturas
+            self.url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        except Exception as e:
+            st.error(f"❌ Error de Conexión: {e}")
+            self.conn = None
+
+    def safe_read(self, sheet_name):
+        if not self.conn: return pd.DataFrame()
+        try:
+            # Leemos la pestaña usando la URL de los secrets
+            return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
+        except Exception as e:
+            st.error(f"Error al leer la pestaña '{sheet_name}': {e}")
             return pd.DataFrame()
 
-    @staticmethod
-    def _write_sheet(df, sheet_name):
-        conn.update(worksheet=sheet_name, data=df)
-
-    @classmethod
-    def get_user_by_username(cls, username):
-        df = cls._read_sheet("Usuarios")
-        if df.empty or 'username' not in df.columns: return None
-        user_row = df[df['username'] == username]
-        if not user_row.empty:
-            return type('User', (object,), user_row.iloc[0].to_dict())()
-        return None
-
-    @classmethod
-    def update_user_credentials(cls, username, new_username, new_password_hash):
-        df = cls._read_sheet("Usuarios")
-        idx = df.index[df['username'] == username].tolist()
-        if idx:
-            df.at[idx[0], 'username'] = new_username
-            df.at[idx[0], 'password'] = new_password_hash
-            cls._write_sheet(df, "Usuarios")
-            return True
-        return False
-
-    @classmethod
-    def get_test_by_date(cls, machine_name, date_obj):
-        df = cls._read_sheet("Historial")
-        if df.empty: return None
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        mask = (df['machine_name'] == machine_name) & (df['timestamp'].dt.date == date_obj)
-        filtered = df[mask]
-        if not filtered.empty:
-            latest = filtered.sort_values(by='timestamp', ascending=False).iloc[0]
-            return type('Test', (object,), latest.to_dict())()
-        return None
-
-    @classmethod
-    def get_machine_history(cls, machine_name, limit=10):
-        df = cls._read_sheet("Historial")
-        if df.empty: return pd.DataFrame()
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        history = df[df['machine_name'] == machine_name].sort_values(by='timestamp', ascending=False).head(limit)
-        return history
-
-    @classmethod
-    def save_test_result(cls, machine_name, health_score, missing_nodes, maps_data, evidence_path):
-        df = cls._read_sheet("Historial")
-        new_row = pd.DataFrame([{
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "machine_name": machine_name,
-            "health_score": health_score,
-            "missing_nodes": missing_nodes,
-            "evidence_path": evidence_path
-        }])
-        df_updated = pd.concat([df, new_row], ignore_index=True)
-        cls._write_sheet(df_updated, "Historial")
-
-    @classmethod
-    def get_history_range(cls, start_date, end_date):
-        df = cls._read_sheet("Historial")
-        if df.empty: return pd.DataFrame()
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        start_dt = pd.to_datetime(start_date)
-        end_dt = pd.to_datetime(end_date) + timedelta(days=1) - timedelta(seconds=1)
-        mask = (df['timestamp'] >= start_dt) & (df['timestamp'] <= end_dt)
-        return df.loc[mask]
+db = GSheetsDB()
 
 # =========================================================
 # 5. INICIALIZACIÓN DE SESSION STATE Y VARIABLES GLOBALES
