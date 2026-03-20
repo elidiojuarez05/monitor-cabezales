@@ -5,3 +5,4 @@ opencv-python-headless
 gspread
 google-auth
 Pillow
+st-gsheets-connection
