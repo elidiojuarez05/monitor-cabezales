@@ -4,10 +4,6 @@ import pandas as pd
 import hashlib
 import time
 from datetime import datetime
-from PIL import Image
-import numpy as np
-import cv2
-import os
 
 # =========================================================
 # CONFIGURACIÓN VISUAL INDUSTRIAL (DARK TECH)
@@ -39,75 +35,70 @@ st.markdown("""
 # =========================================================
 # GESTOR DE DATOS (CONEXIÓN SEGURA)
 # =========================================================
-# Reemplaza tu clase GSheetsDB o la parte de lectura con esto:
 class GSheetsDB:
     def __init__(self):
         try:
-            # Conexión directa. Streamlit buscará en st.secrets["connections"]["gsheets"]
+            # Conexión directa usando st.secrets
             self.conn = st.connection("gsheets", type=GSheetsConnection)
-            st.success("✅ Conexión establecida con éxito.")
         except Exception as e:
-            st.error(f"❌ Error de configuración: {e}")
+            st.error(f"❌ Error de conexión: {e}")
 
     def safe_read(self, sheet_name):
         try:
-            # Leemos la pestaña
+            # ttl=0 asegura que traiga datos frescos del Excel
             return self.conn.read(worksheet=sheet_name, ttl=0)
         except Exception as e:
-            st.error(f"Error al leer '{sheet_name}': {e}")
-            return None
+            st.error(f"Error al leer pestaña '{sheet_name}': {e}")
+            return pd.DataFrame()
+
+    def update_sheet(self, df, sheet_name):
+        try:
+            # Método oficial para escribir en la hoja
+            self.conn.update(worksheet=sheet_name, data=df)
+            return True
+        except Exception as e:
+            st.error(f"Error al guardar en '{sheet_name}': {e}")
+            return False
 
 db = GSheetsDB()
-# =========================================================
-# LÓGICA DE NEGOCIO
-# =========================================================
 
+# =========================================================
+# LÓGICA DE LOGIN
+# =========================================================
 def check_login(user, pwd):
     df = db.safe_read("usuarios")
-    st.write("Datos recibidos:", df)
+    
     if df.empty:
-        st.error("La hoja de 'usuarios' está vacía o no se pudo leer.")
+        st.error("No se pudo acceder a la tabla de usuarios.")
         return False
 
-    # --- DIAGNÓSTICO INTELIGENTE ---
-    # Limpiamos los nombres de las columnas para evitar errores de espacios o mayúsculas
+    # Normalización de columnas para evitar errores de mayúsculas/espacios
     df.columns = [str(c).strip().lower() for c in df.columns]
     
-    # Mostramos en pantalla qué columnas encontró realmente (Solo para depurar)
-    # st.write("Columnas detectadas (limpias):", list(df.columns))
-
-    # Verificamos si después de limpiar existe la columna 'usuario'
-    if 'usuario' not in df.columns:
-        st.error(f"No encontré la columna 'usuario'. Columnas actuales: {list(df.columns)}")
-        return False
-
-    # --- PROCESO DE LOGIN ---
     user_input = str(user).strip().lower()
-    
-    # Buscamos en la columna ya normalizada
+    # Buscamos al usuario
     match = df[df['usuario'].astype(str).str.strip().lower() == user_input]
     
     if not match.empty:
-        # Generamos el hash de la contraseña ingresada
-        h_input = hashlib.sha256(pwd.strip().encode()).hexdigest()
-        
-        # Obtenemos la contraseña de la base de datos (columna 'contraseña' o 'contrasena')
+        # Verificamos contraseña (soporta 'contraseña' o 'contrasena')
         col_pass = 'contraseña' if 'contraseña' in df.columns else 'contrasena'
         db_pwd = str(match.iloc[0][col_pass]).strip()
         
+        h_input = hashlib.sha256(pwd.strip().encode()).hexdigest()
+        
         if db_pwd == h_input:
-            return match.iloc[0]['rol']
+            return str(match.iloc[0]['rol']).lower()
     
     return False
-# =========================================================
-# INTERFAZ DE USUARIO
-# =========================================================
 
+# =========================================================
+# INTERFAZ Y NAVEGACIÓN
+# =========================================================
 if 'auth' not in st.session_state: st.session_state.auth = False
 
 if not st.session_state.auth:
     st.markdown("<div class='main-header'><h1>🔐 Acceso al Sistema Industrial</h1></div>", unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([1, 1, 1])
+    _, c2, _ = st.columns([1, 1, 1])
     with c2:
         u = st.text_input("ID de Operador")
         p = st.text_input("PIN", type="password")
@@ -119,27 +110,25 @@ if not st.session_state.auth:
                 st.session_state.rol = rol
                 st.rerun()
             else:
-                st.error("Credenciales incorrectas")
+                st.error("Credenciales incorrectas o usuario no encontrado.")
     st.stop()
 
-# --- DASHBOARD PRINCIPAL ---
+# Dashboard Principal
 st.markdown(f"""
     <div class='main-header'>
         <h1 style='margin:0;'>🏭 Panel de Control Planta</h1>
-        <small style='color:#8b949e;'>Usuario: {st.session_state.user} | Rol: {st.session_state.rol}</small>
+        <small style='color:#8b949e;'>Usuario: {st.session_state.user} | Rol: {st.session_state.rol.upper()}</small>
     </div>
 """, unsafe_allow_html=True)
 
-# Sidebar
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/554/554866.png", width=100)
-    st.title("Opciones")
+    st.title("Menú")
     menu = st.radio("Navegación", ["Monitor General", "Cargar Test", "Administración"])
     if st.button("Cerrar Sesión"):
         st.session_state.auth = False
         st.rerun()
 
-# --- MÓDULO 1: MONITOR ---
+# --- MONITOR GENERAL ---
 if menu == "Monitor General":
     df_m = db.safe_read("maquinas")
     df_t = db.safe_read("tests")
@@ -150,67 +139,39 @@ if menu == "Monitor General":
             with cols[i % 3]:
                 st.markdown(f"""
                 <div class='card'>
-                    <h3 style='margin-top:0; color:#58a6ff;'>{row['nombre']}</h3>
-                    <p><b>Estado:</b> {row['estado']}</p>
-                    <small>Act: {row['ultima_actulizacion']}</small><br>
-                    <small>Op: {row['operador']}</small>
+                    <h3 style='margin-top:0; color:#58a6ff;'>{row.get('nombre', 'N/A')}</h3>
+                    <p><b>Estado:</b> {row.get('estado', 'Desconocido')}</p>
+                    <small>Act: {row.get('ultima_actualizacion', 'N/A')}</small>
                 </div>
                 """, unsafe_allow_html=True)
-                
-                # Mostrar último test si existe
-                if not df_t.empty:
-                    last_test = df_t[df_t['maquina'] == row['nombre']].sort_values(by='fecha', ascending=False)
-                    if not last_test.empty:
-                        val = float(last_test.iloc[0]['salud'])
-                        st.metric("Salud", f"{val}%", delta=f"{last_test.iloc[0]['fallas']} fallas", delta_color="inverse")
 
-# --- MÓDULO 2: CARGAR TEST ---
+# --- CARGAR TEST ---
 elif menu == "Cargar Test":
     df_m = db.safe_read("maquinas")
-    maquina = st.selectbox("Seleccione Máquina", df_m['nombre'] if not df_m.empty else [])
-    
-    img_file = st.camera_input("Capturar Test")
-    if img_file:
-        with st.spinner("Sincronizando con Google Sheets..."):
-            # Aquí iría tu lógica de procesamiento de imagen
-            # Simulamos resultados:
-            salud_sim = 95.0
-            fallas_sim = 4
-            
-            # 1. Guardar Test
-            df_t = db.safe_read("tests")
-            new_t = pd.DataFrame([{
-                "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "maquina": maquina,
-                "salud": salud_sim,
-                "fallas": fallas_sim,
-                "evidencias_url": "N/A"
-            }])
-            df_t_updated = pd.concat([df_t, new_t], ignore_index=True)
-            db.update_sheet(df_t_updated, "tests")
-            
-            # 2. Actualizar Maquina
-            df_m.loc[df_m['nombre'] == maquina, 'estado'] = "Operativa"
-            df_m.loc[df_m['nombre'] == maquina, 'operador'] = st.session_state.user
-            df_m.loc[df_m['nombre'] == maquina, 'ultima_actulizacion'] = datetime.now().strftime("%Y-%m-%d %H:%M")
-            db.update_sheet(df_m, "maquinas")
-            
-            st.success("✅ Test registrado y base de datos actualizada.")
-            time.sleep(2)
-            st.rerun()
+    if not df_m.empty:
+        maquina = st.selectbox("Seleccione Máquina", df_m['nombre'].tolist())
+        img_file = st.camera_input("Capturar Test")
+        
+        if img_file:
+            with st.spinner("Actualizando registros..."):
+                # Simulación de procesamiento
+                salud_sim, fallas_sim = 98.5, 2
+                fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M")
+                
+                # Actualizar Maquinas (Dataframe local y luego nube)
+                df_m.loc[df_m['nombre'] == maquina, 'estado'] = "Operativa"
+                df_m.loc[df_m['nombre'] == maquina, 'ultima_actualizacion'] = fecha_actual
+                
+                if db.update_sheet(df_m, "maquinas"):
+                    st.success("✅ Datos sincronizados.")
+                    time.sleep(1)
+                    st.rerun()
 
-# --- MÓDULO 3: ADMIN ---
+# --- ADMINISTRACIÓN ---
 elif menu == "Administración":
     if st.session_state.rol != "admin":
-        st.warning("Acceso restringido solo para administradores.")
+        st.warning("Acceso restringido.")
     else:
         st.subheader("Gestión de Usuarios")
         df_u = db.safe_read("usuarios")
         st.dataframe(df_u, use_container_width=True)
-        
-        st.subheader("Estado de Máquinas")
-        df_m = db.safe_read("maquinas")
-        st.data_editor(df_m, key="editor_m")
-        if st.button("Guardar Cambios"):
-            db.update_sheet(st.session_state.editor_m, "maquinas")
-            st.success("Cambios guardados.")
