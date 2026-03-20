@@ -25,5 +25,5 @@ conn = GSheetsConnection(
 
 df = conn.read()
 
-st.write(df))
+st.write(df)
 
