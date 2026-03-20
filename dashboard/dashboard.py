@@ -83,45 +83,28 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 class GSheetsDB:
     def __init__(self):
         try:
-            # Extraemos los secretos individualmente para asegurar limpieza
-            s = st.secrets["connections"]["gsheets"]
+            # En las versiones nuevas, simplemente llamamos a st.connection.
+            # Streamlit buscará automáticamente la sección [connections.gsheets] en tus Secrets.
+            self.conn = st.connection("gsheets", type=GSheetsConnection)
             
-            self.service_account_info = {
-                "type": s["type"],
-                "project_id": s["project_id"],
-                "private_key_id": s["private_key_id"],
-                "private_key": s["private_key"],
-                "client_email": s["client_email"],
-                "client_id": s["client_id"],
-                "auth_uri": s["auth_uri"],
-                "token_uri": s["token_uri"],
-                "auth_provider_x509_cert_url": s["auth_provider_x509_cert_url"],
-                "client_x509_cert_url": s["client_x509_cert_url"]
-            }
-            
-            # Inicializamos la conexión con la info explícita
-            self.conn = st.connection(
-                "gsheets", 
-                type=GSheetsConnection, 
-                service_account_info=self.service_account_info
-            )
-            self.url = s["spreadsheet"]
+            # Recuperamos la URL directamente de los secretos para usarla en las lecturas
+            self.url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+            st.success("✅ Conexión técnica establecida")
         except Exception as e:
-            st.error(f"❌ Error Crítico de Configuración: {e}")
+            st.error(f"❌ Error de configuración: {e}")
             self.conn = None
 
     def safe_read(self, sheet_name):
         if not self.conn: 
             return pd.DataFrame()
         try:
-            # Forzamos la lectura usando la URL y el nombre de la pestaña
+            # Usamos la conexión para leer la pestaña específica
             return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
         except Exception as e:
-            # Este es el error que estás viendo; aquí imprimimos el detalle técnico real
-            st.error(f"Error técnico en pestaña '{sheet_name}': {e}")
+            st.error(f"Error al leer la pestaña '{sheet_name}': {e}")
             return pd.DataFrame()
 
-db = GSheetsDB()
+db = GSheetsDB()B()
 
 # =========================================================
 # 5. INICIALIZACIÓN DE SESSION STATE Y VARIABLES GLOBALES
