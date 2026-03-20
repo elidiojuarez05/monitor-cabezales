@@ -83,24 +83,23 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 class GSheetsDB:
     def __init__(self):
         try:
-            # Forzamos la limpieza de la llave antes de conectar
-            raw_key = st.secrets["connections"]["gsheets"]["private_key"]
-            clean_key = raw_key.replace("\\n", "\n")
-            
-            # Pasamos la configuración de forma que la librería no tenga que adivinar
+            # Aseguramos que la conexión se cree globalmente
             self.conn = st.connection("gsheets", type=GSheetsConnection)
             self.url = st.secrets["connections"]["gsheets"]["spreadsheet"]
         except Exception as e:
-            st.error(f"❌ Error al inicializar: {e}")
+            st.error(f"Error de conexión: {e}")
 
     def safe_read(self, sheet_name):
         try:
-            # Especificamos el spreadsheet y el worksheet explícitamente
+            # Leemos la pestaña directamente
             return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
         except Exception as e:
-            st.error(f"Error en pestaña '{sheet_name}': {e}")
+            # Si el padding falla aquí, intentamos una limpieza manual del secreto
+            st.error(f"Error de formato en la llave (Padding): {e}")
             return pd.DataFrame()
-db = GSheetsDB()            
+
+# Creamos la instancia global para evitar el NameError
+db = GSheetsDB()
             
 
 # =========================================================
