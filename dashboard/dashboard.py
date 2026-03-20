@@ -1,25 +1,17 @@
-# =========================================
-# DASHBOARD COMPLETO (STREAMLIT CONNECTIONS)
-# - Google Sheets con st.connection
-# - Sin gspread ni google-auth
-# - Listo para Streamlit Cloud
-# =========================================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import cv2
 from PIL import Image
-from datetime import datetime, timedelta
+from datetime import datetime
 import hashlib
-import time
+
 from streamlit_gsheets import GSheetsConnection
 
 # =========================================
 # CONFIG
 # =========================================
-
-st.set_page_config(page_title="Print Head Monitor", layout="wide")
+st.set_page_config(layout="wide")
 
 st.markdown("""
 <style>
@@ -31,122 +23,141 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================
-# CONNECTION GOOGLE SHEETS
+# CONNECTION
 # =========================================
-
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=5)
-def load_data():
+def load(sheet):
     try:
-        return conn.read()
+        return conn.read(worksheet=sheet)
     except:
         return pd.DataFrame()
 
-
-def save_data(df):
-    conn.update(data=df)
+def save(sheet, df):
+    conn.update(worksheet=sheet, data=df)
 
 # =========================================
-# AUTH SIMPLE
+# LOGIN REAL DESDE SHEETS
 # =========================================
-
-USERS = {
-    "admin": hashlib.sha256("system123".encode()).hexdigest()
-}
+users = load("usuarios")
 
 if "auth" not in st.session_state:
     st.session_state.auth = False
 
 if not st.session_state.auth:
-    st.title("🔐 Acceso")
+    st.title("🔐 Login Industrial")
+
     u = st.text_input("Usuario")
     p = st.text_input("Contraseña", type="password")
 
     if st.button("Entrar"):
-        if u in USERS and USERS[u] == hashlib.sha256(p.encode()).hexdigest():
+        hashed = hashlib.sha256(p.encode()).hexdigest()
+
+        user = users[
+            (users["usuario"] == u) &
+            (users["contraseña"] == hashed)
+        ]
+
+        if not user.empty:
             st.session_state.auth = True
+            st.session_state.user = u
+            st.success("Acceso concedido")
             st.rerun()
         else:
             st.error("Credenciales incorrectas")
+
     st.stop()
+
+# =========================================
+# DATA
+# =========================================
+df_tests = load("tests")
+df_maquinas = load("maquinas")
 
 # =========================================
 # SIDEBAR
 # =========================================
+st.sidebar.title("🏭 Control")
 
-st.sidebar.title("⚙️ Configuración")
-machine = st.sidebar.selectbox("Máquina", ["M1", "M2", "M3"])
-sensibilidad = st.sidebar.slider("Sensibilidad", 0.01, 0.2, 0.05)
+machine = st.sidebar.selectbox(
+    "Máquina",
+    df_maquinas["nombre"].unique() if not df_maquinas.empty else ["M1"]
+)
+
+# =========================================
+# KPIs
+# =========================================
+st.title("📊 Monitor Industrial")
+
+if not df_tests.empty:
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Total Tests", len(df_tests))
+    col2.metric("Salud Promedio", f"{df_tests['salud'].mean():.2f}%")
+
+    last = df_tests.iloc[-1]["salud"]
+    col3.metric("Último Test", f"{last:.2f}%")
 
 # =========================================
 # PROCESAMIENTO
 # =========================================
+st.subheader("📷 Análisis de Cabezal")
 
-st.title("🖨️ Monitor Inteligente")
-
-file = st.file_uploader("Subir imagen", type=["jpg", "png", "jpeg"])
+file = st.file_uploader("Subir imagen")
 
 if file:
-    image = Image.open(file)
-    st.image(image, caption="Imagen cargada", use_column_width=True)
+    img = Image.open(file)
+    st.image(img, use_column_width=True)
 
-    if st.button("Procesar Imagen"):
-        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    if st.button("Analizar"):
+        img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
 
-        health = np.mean(gray) / 255 * 100
-        fails = int(np.sum(gray < 50))
+        health = np.mean(img_cv) / 255 * 100
 
-        df = load_data()
+        # ESTADO INTELIGENTE
+        if health > 80:
+            estado = "OK"
+        elif health > 50:
+            estado = "ALERTA"
+        else:
+            estado = "CRITICO"
 
-        new_row = pd.DataFrame([{
-            "timestamp": datetime.now(),
-            "machine": machine,
-            "health": health,
-            "fails": fails
+        # GUARDAR TEST
+        new_test = pd.DataFrame([{
+            "fecha": datetime.now(),
+            "maquina": machine,
+            "salud": health,
+            "evidencia_url": "local"
         }])
 
-        df = pd.concat([df, new_row], ignore_index=True)
+        df_tests = pd.concat([df_tests, new_test], ignore_index=True)
+        save("tests", df_tests)
 
-        save_data(df)
+        # ACTUALIZAR MAQUINA
+        df_maquinas.loc[df_maquinas["nombre"] == machine, "estado"] = estado
+        df_maquinas.loc[df_maquinas["nombre"] == machine, "ultima_actualizacion"] = datetime.now()
+        df_maquinas.loc[df_maquinas["nombre"] == machine, "operador"] = st.session_state.user
 
-        st.success(f"✅ Guardado {health:.2f}%")
+        save("maquinas", df_maquinas)
 
-# =========================================
-# DASHBOARD
-# =========================================
-
-df = load_data()
-
-if not df.empty:
-    st.subheader("📊 Vista General")
-    st.dataframe(df)
-
-    if "machine" in df.columns:
-        st.subheader("📈 Rendimiento por Máquina")
-        chart = df.groupby("machine")["health"].mean()
-        st.bar_chart(chart)
-
-    if "timestamp" in df.columns:
-        st.subheader("📅 Últimos 7 días")
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-        recent = df[df["timestamp"] > datetime.now() - timedelta(days=7)]
-
-        if not recent.empty:
-            st.line_chart(recent.set_index("timestamp")["health"])
-else:
-    st.info("Sin datos aún")
+        st.success(f"Estado: {estado} ({health:.2f}%)")
 
 # =========================================
-# AUTO REFRESH
+# HISTÓRICO
 # =========================================
+st.subheader("📈 Histórico")
 
-if "pause" not in st.session_state:
-    st.session_state.pause = False
+if not df_tests.empty:
+    hist = df_tests[df_tests["maquina"] == machine]
 
-if not st.session_state.pause:
-    time.sleep(10)
-    st.rerun()
+    if not hist.empty:
+        st.line_chart(hist.set_index("fecha")["salud"])
 
+# =========================================
+# ESTADO DE MAQUINAS
+# =========================================
+st.subheader("🏭 Estado General")
+
+if not df_maquinas.empty:
+    st.dataframe(df_maquinas)
 
