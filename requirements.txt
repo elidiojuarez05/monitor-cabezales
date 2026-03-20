@@ -8,3 +8,5 @@ streamlit-webrtc
 Pillow
 qrcode
 validators
+flask
+flask-socketio
