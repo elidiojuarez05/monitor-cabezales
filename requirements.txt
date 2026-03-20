@@ -2,7 +2,6 @@ streamlit
 pandas
 numpy
 opencv-python-headless
+Pillow
 gspread
 google-auth
-Pillow
-st-gsheets-connection
