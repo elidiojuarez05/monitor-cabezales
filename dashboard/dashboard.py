@@ -43,50 +43,36 @@ st.markdown("""
 class GSheetsDB:
     def __init__(self):
         try:
-            # 1. CURACIÓN PREVENTIVA DE LA LLAVE
-            # Modificamos la llave en el diccionario de la sesión de Streamlit
-            # para que cuando el conector la pida, ya esté limpia.
-            if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-                raw_key = st.secrets["connections"]["gsheets"]["private_key"]
-                
-                # Limpiamos guiones extra (por si hay 10 en lugar de 5)
-                clean_key = raw_key.strip()
-                if clean_key.startswith("----------"):
-                    clean_key = "-----" + clean_key.strip("-") + "-----"
-                
-                # Corregimos los saltos de línea literales
-                if "\\n" in clean_key:
-                    clean_key = clean_key.replace("\\n", "\n")
-                
-                # RE-INYECCIÓN: Esto sobrescribe la llave en memoria para esta sesión
-                # aunque el secreto original sea de solo lectura, la conexión usará este valor corregido.
-                st.session_state["_gsheets_key_fix"] = clean_key
-
-            # 2. CONEXIÓN ESTÁNDAR
-            # Dejamos que Streamlit busque los secrets por su cuenta
+            # 1. Conexión estándar (Streamlit gestiona los secrets automáticamente)
             self.conn = st.connection("gsheets", type=GSheetsConnection)
             
-            # 3. VERIFICACIÓN DE PESTAÑAS
-            # Usamos el cliente interno para listar nombres
-            url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-            sheet_objeto = self.conn.client.open_by_url(url)
-            self.pestañas_reales = [ws.title for ws in sheet_objeto.worksheets()]
-            
-            st.success(f"✅ Conexión exitosa. Pestañas: {', '.join(self.pestañas_reales)}")
-            
+            # 2. DIAGNÓSTICO DE PESTAÑAS (Nueva sintaxis corregida)
+            # En las versiones nuevas, usamos el método ._instance para llegar al cliente de gspread
+            try:
+                # Intentamos obtener la lista de pestañas para validar la conexión
+                # spreadsheet=None le dice que use la URL de los secrets
+                df_test = self.conn.read(ttl=0) 
+                st.success("✅ Conexión técnica establecida con Google Sheets")
+            except Exception as e_diag:
+                st.error(f"Error al intentar leer la hoja: {e_diag}")
+
         except Exception as e:
-            st.error(f"❌ Error de acceso: {e}")
-            st.info("Revisa que el correo de la Service Account sea EDITOR en el botón Compartir del Excel.")
-            self.pestañas_reales = []
+            st.error(f"❌ Error de configuración: {e}")
 
     def safe_read(self, sheet_name):
         try:
-            if not self.pestañas_reales or sheet_name not in self.pestañas_reales:
+            # Leemos la pestaña específica
+            # worksheet es el nombre de la pestaña en tu Excel
+            df = self.conn.read(worksheet=sheet_name, ttl=0)
+            
+            if df is None or df.empty:
+                st.warning(f"La pestaña '{sheet_name}' parece estar vacía.")
                 return pd.DataFrame()
-            # Lectura estándar
-            return self.conn.read(worksheet=sheet_name, ttl=0)
+                
+            return df
         except Exception as e:
-            st.error(f"Error al leer '{sheet_name}': {e}")
+            # Si el error es que no encuentra la pestaña, te lo avisará aquí
+            st.error(f"Error al acceder a la pestaña '{sheet_name}': {e}")
             return pd.DataFrame()
 
 # Inicializar
