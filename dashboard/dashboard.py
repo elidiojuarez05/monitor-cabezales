@@ -83,28 +83,23 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 class GSheetsDB:
     def __init__(self):
         try:
-            # En las versiones nuevas, simplemente llamamos a st.connection.
-            # Streamlit buscará automáticamente la sección [connections.gsheets] en tus Secrets.
-            self.conn = st.connection("gsheets", type=GSheetsConnection)
+            # Forzamos la limpieza de la llave antes de conectar
+            raw_key = st.secrets["connections"]["gsheets"]["private_key"]
+            clean_key = raw_key.replace("\\n", "\n")
             
-            # Recuperamos la URL directamente de los secretos para usarla en las lecturas
+            # Pasamos la configuración de forma que la librería no tenga que adivinar
+            self.conn = st.connection("gsheets", type=GSheetsConnection)
             self.url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-            st.success("✅ Conexión técnica establecida")
         except Exception as e:
-            st.error(f"❌ Error de configuración: {e}")
-            self.conn = None
+            st.error(f"❌ Error al inicializar: {e}")
 
     def safe_read(self, sheet_name):
-        if not self.conn: 
-            return pd.DataFrame()
         try:
-            # Usamos la conexión para leer la pestaña específica
+            # Especificamos el spreadsheet y el worksheet explícitamente
             return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
         except Exception as e:
-            st.error(f"Error al leer la pestaña '{sheet_name}': {e}")
+            st.error(f"Error en pestaña '{sheet_name}': {e}")
             return pd.DataFrame()
-
-db = GSheetsDB()
 
 # =========================================================
 # 5. INICIALIZACIÓN DE SESSION STATE Y VARIABLES GLOBALES
