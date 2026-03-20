@@ -45,24 +45,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# =========================================================
-# 2. CONFIGURACIÓN DE RUTAS Y PATHS
-# =========================================================
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-    backend_dir = os.path.join(sys._MEIPASS, "backend")
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(BASE_DIR)
-    backend_dir = os.path.join(project_root, "backend")
 
-if backend_dir not in sys.path: sys.path.insert(0, backend_dir)
-
-EVIDENCIAS_PATH = os.path.join(BASE_DIR, "evidencias")
-REPORTES_PATH = os.path.join(BASE_DIR, "reportes")
-
-for path in [EVIDENCIAS_PATH, REPORTES_PATH]:
-    if not os.path.exists(path): os.makedirs(path)
 
 # =========================================================
 # 3. IMPORTS DE MÓDULOS PROPIOS
