@@ -3,26 +3,25 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 
-# 🔑 SCOPES
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-# 🔐 CREDENCIALES DESDE STREAMLIT
-creds_dict = st.secrets["connections"]["gsheets"]
+# 👇 SOLO credenciales limpias
+creds_dict = st.secrets["gcp_service_account"]
 
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-
 client = gspread.authorize(creds)
 
-# 📄 ABRIR SHEET
-spreadsheet = client.open_by_url(creds_dict["spreadsheet"])
+# 👇 URL separada
+spreadsheet = client.open_by_url(st.secrets["gsheets"]["spreadsheet"])
 
-# 📊 LEER HOJA
 sheet = spreadsheet.worksheet("tests")
-data = sheet.get_all_records()
 
+data = sheet.get_all_records()
 df = pd.DataFrame(data)
+
+st.write(df)
 
 st.write(df)
