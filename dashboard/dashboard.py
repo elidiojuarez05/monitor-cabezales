@@ -16,7 +16,7 @@ from PIL import Image
 from datetime import datetime, timedelta
 import time
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 
 # =========================================
 # CONFIGURACIÓN GENERAL
@@ -48,8 +48,9 @@ def connect_sheets():
     creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
         scopes=SCOPE
-    )
-    client = gspread.authorize(creds)
+        )
+
+        client = gspread.authorize(creds)
     return client.open("PrintHeadDB").sheet1
 
 sheet = connect_sheets()
