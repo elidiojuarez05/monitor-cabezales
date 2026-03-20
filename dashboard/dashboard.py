@@ -43,39 +43,20 @@ st.markdown("""
 class GSheetsDB:
     def __init__(self):
         try:
-            # 1. Conexión estándar (Streamlit gestiona los secrets automáticamente)
+            # Conexión directa. Streamlit buscará en st.secrets["connections"]["gsheets"]
             self.conn = st.connection("gsheets", type=GSheetsConnection)
-            
-            # 2. DIAGNÓSTICO DE PESTAÑAS (Nueva sintaxis corregida)
-            # En las versiones nuevas, usamos el método ._instance para llegar al cliente de gspread
-            try:
-                # Intentamos obtener la lista de pestañas para validar la conexión
-                # spreadsheet=None le dice que use la URL de los secrets
-                df_test = self.conn.read(ttl=0) 
-                st.success("✅ Conexión técnica establecida con Google Sheets")
-            except Exception as e_diag:
-                st.error(f"Error al intentar leer la hoja: {e_diag}")
-
+            st.success("✅ Conexión establecida con éxito.")
         except Exception as e:
             st.error(f"❌ Error de configuración: {e}")
 
     def safe_read(self, sheet_name):
         try:
-            # Leemos la pestaña específica
-            # worksheet es el nombre de la pestaña en tu Excel
-            df = self.conn.read(worksheet=sheet_name, ttl=0)
-            
-            if df is None or df.empty:
-                st.warning(f"La pestaña '{sheet_name}' parece estar vacía.")
-                return pd.DataFrame()
-                
-            return df
+            # Leemos la pestaña
+            return self.conn.read(worksheet=sheet_name, ttl=0)
         except Exception as e:
-            # Si el error es que no encuentra la pestaña, te lo avisará aquí
-            st.error(f"Error al acceder a la pestaña '{sheet_name}': {e}")
-            return pd.DataFrame()
+            st.error(f"Error al leer '{sheet_name}': {e}")
+            return None
 
-# Inicializar
 db = GSheetsDB()
 # =========================================================
 # LÓGICA DE NEGOCIO
