@@ -104,7 +104,7 @@ class GSheetsDB:
             st.error(f"Error al leer la pestaña '{sheet_name}': {e}")
             return pd.DataFrame()
 
-db = GSheetsDB()B()
+db = GSheetsDB()
 
 # =========================================================
 # 5. INICIALIZACIÓN DE SESSION STATE Y VARIABLES GLOBALES
