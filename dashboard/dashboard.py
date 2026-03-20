@@ -39,14 +39,16 @@ st.markdown("""
 # =========================================
 
 SCOPE = [
-    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
 @st.cache_resource
 def connect_sheets():
-    creds_dict = st.secrets["gcp_service_account"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=SCOPE
+    )
     client = gspread.authorize(creds)
     return client.open("PrintHeadDB").sheet1
 
