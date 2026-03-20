@@ -13,6 +13,7 @@ from PIL import Image
 from datetime import datetime, timedelta
 import hashlib
 import time
+from streamlit_gsheets import GSheetsConnection
 
 # =========================================
 # CONFIG
@@ -33,7 +34,7 @@ st.markdown("""
 # CONNECTION GOOGLE SHEETS
 # =========================================
 
-conn = st.connection("gsheets", type="gsheets")
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=5)
 def load_data():
