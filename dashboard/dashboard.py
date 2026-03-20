@@ -1,208 +1,126 @@
-import sys
-import os
-import hashlib
-import numpy as np
-import cv2
-import pandas as pd
 import streamlit as st
-from PIL import Image
-from datetime import datetime, timedelta
-import time
-import base64
-from streamlit_gsheets import GSheetsConnection
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
 
-# =========================================================
-# 1. CONFIGURACIÓN DE PÁGINA (DEBE SER EL PRIMER COMANDO)
-# =========================================================
-st.set_page_config(page_title="Print Head Monitor", layout="wide")
+st.set_page_config(page_title="Monitor Industrial", layout="wide")
 
-# Mantenemos tus estilos personalizados
-st.markdown("""
-    <style>
-    [data-testid="stSidebarNav"] { background-color: rgba(100, 100, 100, 0.1); }
-    .st-emotion-cache-1avcm0n { color: orange !important; }
-    </style>
-    """, unsafe_allow_html=True)
+st.title("🏭 Monitor de Cabezales")
 
-# =========================================================
-# 2. CONEXIÓN A GOOGLE SHEETS
-# =========================================================
-conn = st.connection("gsheets", type=GSheetsConnection)
+# =========================
+# 🔐 CONEXIÓN GOOGLE SHEETS
+# =========================
+@st.cache_resource
+def connect():
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
 
-# --- FUNCIONES DE PERSISTENCIA ---
-def leer_maquinas():
-    return conn.read(worksheet="maquinas", ttl="5s")
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scope
+    )
 
-def leer_tests():
-    return conn.read(worksheet="tests", ttl="5s")
+    client = gspread.authorize(creds)
 
-def actualizar_maquina_gsheet(m_name, nuevo_est, user):
-    df = leer_maquinas()
-    df.loc[df['nombre'] == m_name, ['estado', 'ultima_actualizacion', 'operador']] = \
-        [nuevo_est, datetime.now().strftime("%Y-%m-%d %H:%M"), user]
-    conn.update(worksheet="maquinas", data=df)
+    spreadsheet = client.open_by_url(
+        st.secrets["connections"]["gsheets"]["spreadsheet"]
+    )
 
-def guardar_test_gsheet(m_name, salud, fallas, user):
-    df_tests = leer_tests()
-    nuevo = pd.DataFrame([{
-        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "maquina": m_name,
-        "salud": round(salud, 2),
-        "fallas": fallas,
-        "operador": user
-    }])
-    df_final = pd.concat([df_tests, nuevo], ignore_index=True)
-    conn.update(worksheet="tests", data=df_final)
+    return spreadsheet
 
-# =========================================================
-# 3. SEGURIDAD (LOGIN CORREGIDO)
-# =========================================================
-def check_password(username, password):
-    try:
-        df_users = conn.read(worksheet="usuarios", ttl="5s")
-        # Forzamos todo a string para evitar errores si el password es solo números en Excel
-        user_match = df_users[
-            (df_users['username'].astype(str) == str(username)) & 
-            (df_users['password'].astype(str) == str(password))
-        ]
-        return user_match.iloc[0] if not user_match.empty else None
-    except:
-        return None
+spreadsheet = connect()
+sheet = spreadsheet.worksheet("tests")  # cambia nombre si es necesario
 
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+# =========================
+# 📥 CARGA DE DATOS
+# =========================
+@st.cache_data(ttl=5)
+def load_data():
+    data = sheet.get_all_records()
+    return pd.DataFrame(data)
 
-if not st.session_state.authenticated:
-    st.title("🔐 Acceso al Sistema")
-    u_input = st.text_input("Usuario")
-    p_input = st.text_input("Contraseña", type="password")
-    
-    if st.button("Entrar", type="primary"):
-        user_data = check_password(u_input, p_input)
-        if user_data is not None:
-            st.session_state.update({
-                "authenticated": True, 
-                "user_role": user_data['role'], 
-                "username": user_data['username']
-            })
-            st.rerun()
-        else:
-            st.error("❌ Usuario o contraseña incorrectos. Verifica tu Google Sheet.")
-    st.stop()
+df = load_data()
 
-# =========================================================
-# 4. DISEÑO DE TARJETAS (MISMA VISUALIZACIÓN ANTERIOR)
-# =========================================================
-def render_machine_card(m_name, row_maquina):
-    # Buscamos el último test de esta máquina en la hoja de tests
-    df_all_tests = leer_tests()
-    last_test = df_all_tests[df_all_tests['maquina'] == m_name].tail(1)
-    
-    estado_actual = row_maquina['estado']
-    fecha_ultimo = row_maquina['ultima_actualizacion']
+# =========================
+# 🧠 PROCESAMIENTO
+# =========================
+if not df.empty:
+    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
 
-    opciones_estilo = {
-        "Operativa": {"color_b": "#28a745", "icon": "✅"},
-        "Mantenimiento": {"color_b": "#6c757d", "icon": "🛠️"},
-        "Falla Total": {"color_b": "#dc3545", "icon": "🚫"},
-        "Atención": {"color_b": "#fd7e14", "icon": "🔌"}
-    }
-    estilo = opciones_estilo.get(estado_actual, opciones_estilo["Operativa"])
-    
-    with st.container(border=True):
-        st.markdown(f"""
-            <div style="height: 60px; border-bottom: 2px solid {estilo['color_b']}; margin-bottom: 10px;">
-                <h3 style="margin: 0; color: {estilo['color_b']};">{estilo['icon']} {m_name}</h3>
-                <p style="color: gray; font-size: 0.8em; margin: 0;">Actualizado: {fecha_ultimo}</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        if not last_test.empty:
-            salud = float(last_test['salud'].values[0])
-            fallas = int(last_test['fallas'].values[0])
-            st.metric("Salud", f"{salud}%", f"{fallas} fallas", delta_color="inverse")
-        else:
-            st.info("Sin registros de tests")
+    total = len(df)
+    fallas = len(df[df["estado"] == "Falla"])
+    ok = len(df[df["estado"] == "OK"])
 
-# =========================================================
-# 5. INTERFAZ PRINCIPAL (SIDEBAR Y TABS)
-# =========================================================
-# --- HEADER ---
-st.title("🖨️ Monitor Inteligente de Cabezales")
+    porcentaje_fallas = (fallas / total) * 100 if total > 0 else 0
+else:
+    total = fallas = ok = porcentaje_fallas = 0
 
-with st.sidebar:
-    st.write(f"👤 Usuario: **{st.session_state.username}**")
-    st.write(f"🎖️ Rol: **{st.session_state.user_role}**")
-    st.divider()
-    
-    # Selector de máquina para la cámara
-    df_maq = leer_maquinas()
-    machine_selected = st.selectbox("Máquina para Escanear:", df_maq['nombre'].tolist())
-    run_camera = st.checkbox("📸 Activar Cámara")
-    
-    if st.button("Cerrar Sesión"):
-        st.session_state.authenticated = False
-        st.rerun()
+# =========================
+# 📊 DASHBOARD
+# =========================
+col1, col2, col3, col4 = st.columns(4)
 
-# --- LÓGICA DE CÁMARA ---
-if run_camera:
-    foto = st.camera_input("Capturar Test")
-    if foto:
-        with st.spinner("Procesando..."):
-            # Aquí iría tu image_processor (simulamos resultado para el ejemplo)
-            salud_simulada = 95.5
-            fallas_simuladas = 2
-            
-            # Guardamos en Google Sheets
-            guardar_test_gsheet(machine_selected, salud_simulada, fallas_simuladas, st.session_state.username)
-            actualizar_maquina_gsheet(machine_selected, "Operativa", st.session_state.username)
-            
-            st.success("✅ Datos sincronizados con la nube")
-            time.sleep(1)
-            st.rerun()
+col1.metric("Total registros", total)
+col2.metric("OK", ok)
+col3.metric("Fallas", fallas)
+col4.metric("% Fallas", f"{porcentaje_fallas:.2f}%")
 
-# --- TABS (MISMA ESTRUCTURA ANTERIOR) ---
-tab_carrusel, tab_planta, tab_gestion = st.tabs(["🔄 Modo Carrusel", "🏬 Vista General", "⚙️ Gestión"])
+st.divider()
 
-# TAB 1: CARRUSEL
-with tab_carrusel:
-    idx = st.session_state.indice_carrusel
-    lista_m = df_maq['nombre'].tolist()
-    cols_car = st.columns(2)
-    # Mostramos 2 máquinas a la vez
-    for i in range(2):
-        m_idx = (idx + i) % len(lista_m)
-        name = lista_m[m_idx]
-        datos_m = df_maq[df_maq['nombre'] == name].iloc[0]
-        with cols_car[i]:
-            render_machine_card(name, datos_m)
+# =========================
+# 📈 GRÁFICA
+# =========================
+if not df.empty:
+    st.subheader("📊 Estado de equipos")
+    st.bar_chart(df["estado"].value_counts())
 
-# TAB 2: VISTA GENERAL
-with tab_planta:
-    for i in range(0, len(df_maq), 2):
-        cols = st.columns(2)
-        for j in range(2):
-            if i + j < len(df_maq):
-                row = df_maq.iloc[i + j]
-                with cols[j]:
-                    render_machine_card(row['nombre'], row)
+# =========================
+# 📋 TABLA
+# =========================
+st.subheader("📋 Registros")
 
-# TAB 3: GESTIÓN
-with tab_gestion:
-    st.subheader("🛠️ Cambiar Estado de Equipos")
-    col_g1, col_g2 = st.columns(2)
-    m_edit = col_g1.selectbox("Máquina:", df_maq['nombre'].tolist(), key="edit_m")
-    nuevo_est = col_g2.selectbox("Nuevo Estado:", ["Operativa", "Mantenimiento", "Falla Total", "Atención"])
-    
-    if st.button("Actualizar en Nube"):
-        actualizar_maquina_gsheet(m_edit, nuevo_est, st.session_state.username)
-        st.success("Sincronizado!")
-        st.rerun()
+if df.empty:
+    st.warning("No hay datos")
+else:
+    st.dataframe(df, use_container_width=True)
 
-# =========================================================
-# 6. MOTOR DE SINCRONIZACIÓN
-# =========================================================
-if not run_camera:
-    time.sleep(12)
-    # Avanzamos el carrusel
-    st.session_state.indice_carrusel = (st.session_state.indice_carrusel + 2) % len(df_maq)
-    st.rerun()
+# =========================
+# ➕ CREAR REGISTRO
+# =========================
+st.subheader("➕ Nuevo registro")
+
+with st.form("crear"):
+    fecha = st.date_input("Fecha", datetime.now())
+    equipo = st.text_input("Equipo")
+    estado = st.selectbox("Estado", ["OK", "Falla"])
+
+    guardar = st.form_submit_button("Guardar")
+
+    if guardar:
+        sheet.append_row([str(fecha), equipo, estado])
+        st.success("Registro agregado")
+        st.cache_data.clear()
+
+# =========================
+# ✏️ EDITAR / ELIMINAR
+# =========================
+st.subheader("✏️ Editar / Eliminar")
+
+if not df.empty:
+    fila = st.number_input("Selecciona índice", min_value=0, max_value=len(df)-1)
+
+    if st.button("Eliminar"):
+        sheet.delete_rows(fila + 2)  # +2 por header
+        st.success("Eliminado")
+        st.cache_data.clear()
+
+    if st.button("Editar estado"):
+        nuevo_estado = st.selectbox("Nuevo estado", ["OK", "Falla"])
+        col_estado = df.columns.get_loc("estado") + 1
+
+        sheet.update_cell(fila + 2, col_estado, nuevo_estado)
+        st.success("Actualizado")
+        st.cache_data.clear()
