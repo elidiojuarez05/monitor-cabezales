@@ -100,6 +100,8 @@ class GSheetsDB:
         except Exception as e:
             st.error(f"Error en pestaña '{sheet_name}': {e}")
             return pd.DataFrame()
+db = GSheetsDB()            
+            
 
 # =========================================================
 # 5. INICIALIZACIÓN DE SESSION STATE Y VARIABLES GLOBALES
