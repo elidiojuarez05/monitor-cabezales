@@ -1,9 +1,11 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
-import json
 
-# 🔑 CREDENCIALES DIRECTAS (SIN TOML)
-creds = {
+# 👇 aquí usamos st.connection correctamente
+conn = st.connection(
+    "gsheets",
+    type=GSheetsConnection,
+    service_account_info={
   "type": "service_account",
   "project_id": "aerial-episode-490722-d8",
   "private_key_id": "0b63769358d0b7f5d6c046d94a0a2592cfcdb517",
@@ -17,13 +19,8 @@ creds = {
   "universe_domain": "googleapis.com"
 }
 
-# 🔌 CONEXIÓN MANUAL
-conn = GSheetsConnection(
-    connection_name="gsheets",
-    service_account_info=creds
 )
 
 df = conn.read()
-
 st.write(df)
 
