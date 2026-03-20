@@ -42,22 +42,30 @@ st.markdown("""
 # Reemplaza tu clase GSheetsDB o la parte de lectura con esto:
 class GSheetsDB:
     def __init__(self):
-        st.write("¿Qué pestañas veo?", conn.list_worksheets()) # Esto te dirá los nombres reales que detecta
-        st.write("Contenido de la tabla:", df)
-        self.conn = st.connection("gsheets", type=GSheetsConnection)
+        try:
+            # 1. Conectamos
+            self.conn = st.connection("gsheets", type=GSheetsConnection)
+            
+            # 2. DIAGNÓSTICO: Vamos a ver qué pestañas existen realmente
+            # Accedemos al cliente interno para listar los nombres
+            url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+            sheet_objeto = self.conn.client.open_by_url(url)
+            pestañas_reales = [ws.title for ws in sheet_objeto.worksheets()]
+            
+            st.write("🔍 Diagnóstico de Pestañas:")
+            st.info(f"Pestañas encontradas en tu Google Sheet: {pestañas_reales}")
+            
+        except Exception as e:
+            st.error(f"Error técnico en la conexión: {e}")
 
     def safe_read(self, sheet_name):
         try:
-            # Intentamos leer la pestaña
-            return self.conn.read(worksheet=sheet_name, ttl="0")
+            # Intentamos leer la pestaña solicitada
+            # Usamos ttl=0 para asegurarnos de ver los datos reales ahora mismo
+            df = self.conn.read(worksheet=sheet_name, ttl=0)
+            return df
         except Exception as e:
-            return self.conn.read(ttl=0)
-            # Si da error 401, lo capturamos para que la app no se detenga
-            if "401" in str(e):
-                st.error(f"🚫 Error de Autorización (401): No tengo permiso para leer la pestaña '{sheet_name}'.")
-                st.info("Asegúrate de que la hoja sea pública o que las credenciales en 'Secrets' sean correctas.")
-            else:
-                st.error(f"Error inesperado: {e}")
+            st.warning(f"No se pudo leer la pestaña '{sheet_name}'. Detalles: {e}")
             return pd.DataFrame()
 
 db = GSheetsDB()
