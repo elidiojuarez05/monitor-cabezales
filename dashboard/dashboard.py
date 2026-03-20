@@ -43,42 +43,43 @@ st.markdown("""
 class GSheetsDB:
     def __init__(self):
         try:
-            # --- LÓGICA DE CURACIÓN DE LLAVE ---
-            # Si la llave viene con saltos de línea literales o errores de escape, los corregimos aquí
-            if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-                raw_key = st.secrets["connections"]["gsheets"]["private_key"]
-                
-                # Paso A: Eliminar espacios accidentales al inicio/final
-                clean_key = raw_key.strip()
-                
-                # Paso B: Corregir el error común de interpretación de \n
-                # Si el sistema lee los '\' y 'n' como texto, los convertimos a saltos de línea reales
-                if "\\n" in clean_key:
-                    clean_key = clean_key.replace("\\n", "\n")
-                
-                # Paso C: Re-inyectar la llave limpia en la configuración de la sesión
-                st.secrets["connections"]["gsheets"]["private_key"] = clean_key
-
-            # --- CONEXIÓN ---
-            self.conn = st.connection("gsheets", type=GSheetsConnection)
+            # 1. Extraemos la configuración de los secrets a un diccionario editable
+            # Usamos .to_dict() para poder manipular los datos sin que Streamlit nos bloquee
+            creds_dict = st.secrets["connections"]["gsheets"].to_dict()
             
-            # --- DIAGNÓSTICO DE PESTAÑAS ---
-            url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+            # 2. LIMPIEZA DE LA LLAVE (SOLUCIÓN AL ERROR PEM)
+            raw_key = creds_dict.get("private_key", "")
+            
+            # Quitamos espacios y corregimos los guiones si hay más de 5
+            clean_key = raw_key.strip()
+            
+            # Si Streamlit escapó los \n como texto literal, los volvemos saltos de línea reales
+            if "\\n" in clean_key:
+                clean_key = clean_key.replace("\\n", "\n")
+            
+            # Actualizamos nuestra copia local del diccionario
+            creds_dict["private_key"] = clean_key
+
+            # 3. CONEXIÓN MANUAL USANDO LAS CREDENCIALES CURADAS
+            # En lugar de dejar que st.connection lea solo los secrets, le pasamos los datos limpios
+            self.conn = st.connection("gsheets", type=GSheetsConnection, **creds_dict)
+            
+            # 4. DIAGNÓSTICO DE PESTAÑAS
+            url = creds_dict.get("spreadsheet")
             sheet_objeto = self.conn.client.open_by_url(url)
             self.pestañas_reales = [ws.title for ws in sheet_objeto.worksheets()]
             
+            st.success("✅ Conexión establecida con éxito")
+            
         except Exception as e:
-            st.error(f"❌ Error crítico de configuración: {e}")
-            st.info("Revisa que la private_key en Secrets no tenga espacios al inicio.")
+            st.error(f"❌ Error de configuración: {e}")
             self.pestañas_reales = []
 
     def safe_read(self, sheet_name):
         try:
-            # Verificamos si la pestaña existe antes de intentar leerla
             if sheet_name not in self.pestañas_reales:
                 st.warning(f"⚠️ La pestaña '{sheet_name}' no existe. Disponibles: {self.pestañas_reales}")
                 return pd.DataFrame()
-                
             return self.conn.read(worksheet=sheet_name, ttl=0)
         except Exception as e:
             st.error(f"Error al leer '{sheet_name}': {e}")
