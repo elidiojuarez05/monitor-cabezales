@@ -83,42 +83,42 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 class GSheetsDB:
     def __init__(self):
         try:
-            # 1. Cargamos los secretos
-            creds = st.secrets["connections"]["gsheets"]
+            # Extraemos los secretos individualmente para asegurar limpieza
+            s = st.secrets["connections"]["gsheets"]
             
-            # 2. Creamos el diccionario de la cuenta de servicio manualmente
-            # Esto asegura que la llave privada se lea correctamente
-            service_account_info = {
-                "type": creds["type"],
-                "project_id": creds["project_id"],
-                "private_key_id": creds["private_key_id"],
-                "private_key": creds["private_key"],
-                "client_email": creds["client_email"],
-                "client_id": creds["client_id"],
-                "auth_uri": creds["auth_uri"],
-                "token_uri": creds["token_uri"],
-                "auth_provider_x509_cert_url": creds["auth_provider_x509_cert_url"],
-                "client_x509_cert_url": creds["client_x509_cert_url"]
+            self.service_account_info = {
+                "type": s["type"],
+                "project_id": s["project_id"],
+                "private_key_id": s["private_key_id"],
+                "private_key": s["private_key"],
+                "client_email": s["client_email"],
+                "client_id": s["client_id"],
+                "auth_uri": s["auth_uri"],
+                "token_uri": s["token_uri"],
+                "auth_provider_x509_cert_url": s["auth_provider_x509_cert_url"],
+                "client_x509_cert_url": s["client_x509_cert_url"]
             }
-
-            # 3. Establecemos la conexión pasando explícitamente la info
+            
+            # Inicializamos la conexión con la info explícita
             self.conn = st.connection(
                 "gsheets", 
                 type=GSheetsConnection, 
-                service_account_info=service_account_info
+                service_account_info=self.service_account_info
             )
-            self.url = creds["spreadsheet"]
-            
+            self.url = s["spreadsheet"]
         except Exception as e:
-            st.error(f"❌ Error crítico de configuración: {e}")
+            st.error(f"❌ Error Crítico de Configuración: {e}")
             self.conn = None
 
     def safe_read(self, sheet_name):
-        if not self.conn: return pd.DataFrame()
+        if not self.conn: 
+            return pd.DataFrame()
         try:
+            # Forzamos la lectura usando la URL y el nombre de la pestaña
             return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
         except Exception as e:
-            st.error(f"Error al leer la pestaña '{sheet_name}': {e}")
+            # Este es el error que estás viendo; aquí imprimimos el detalle técnico real
+            st.error(f"Error técnico en pestaña '{sheet_name}': {e}")
             return pd.DataFrame()
 
 db = GSheetsDB()
