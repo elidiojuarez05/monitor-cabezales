@@ -44,27 +44,29 @@ class GSheetsDB:
     def __init__(self):
         try:
             # 1. Extraemos la configuración de los secrets a un diccionario editable
-            # Usamos .to_dict() para poder manipular los datos sin que Streamlit nos bloquee
             creds_dict = st.secrets["connections"]["gsheets"].to_dict()
             
             # 2. LIMPIEZA DE LA LLAVE (SOLUCIÓN AL ERROR PEM)
             raw_key = creds_dict.get("private_key", "")
-            
-            # Quitamos espacios y corregimos los guiones si hay más de 5
             clean_key = raw_key.strip()
             
-            # Si Streamlit escapó los \n como texto literal, los volvemos saltos de línea reales
+            # Corregimos los saltos de línea si vienen como texto literal
             if "\\n" in clean_key:
                 clean_key = clean_key.replace("\\n", "\n")
             
-            # Actualizamos nuestra copia local del diccionario
+            # Actualizamos la llave limpia en nuestro diccionario
             creds_dict["private_key"] = clean_key
 
-            # 3. CONEXIÓN MANUAL USANDO LAS CREDENCIALES CURADAS
-            # En lugar de dejar que st.connection lea solo los secrets, le pasamos los datos limpios
+            # 3. EVITAR EL ERROR DE "MULTIPLE VALUES FOR KEYWORD ARGUMENT 'TYPE'"
+            # Eliminamos 'type' del diccionario porque ya lo pasamos como primer argumento
+            if "type" in creds_dict:
+                del creds_dict["type"]
+
+            # 4. CONEXIÓN MANUAL
+            # Ahora sí, pasamos GSheetsConnection y el resto de los parámetros sin duplicados
             self.conn = st.connection("gsheets", type=GSheetsConnection, **creds_dict)
             
-            # 4. DIAGNÓSTICO DE PESTAÑAS
+            # 5. DIAGNÓSTICO DE PESTAÑAS
             url = creds_dict.get("spreadsheet")
             sheet_objeto = self.conn.client.open_by_url(url)
             self.pestañas_reales = [ws.title for ws in sheet_objeto.worksheets()]
@@ -77,6 +79,10 @@ class GSheetsDB:
 
     def safe_read(self, sheet_name):
         try:
+            # Si no hay pestañas detectadas, devolvemos vacío
+            if not self.pestañas_reales:
+                return pd.DataFrame()
+                
             if sheet_name not in self.pestañas_reales:
                 st.warning(f"⚠️ La pestaña '{sheet_name}' no existe. Disponibles: {self.pestañas_reales}")
                 return pd.DataFrame()
