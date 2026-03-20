@@ -1,30 +1,25 @@
 # =========================================
-# DASHBOARD COMPLETO ADAPTADO
-# - Google Sheets (st.secrets)
-# - Mantiene estructura original
+# DASHBOARD COMPLETO (STREAMLIT CONNECTIONS)
+# - Google Sheets con st.connection
+# - Sin gspread ni google-auth
 # - Listo para Streamlit Cloud
 # =========================================
 
-import sys
-import os
-import hashlib
+import streamlit as st
+import pandas as pd
 import numpy as np
 import cv2
-import pandas as pd
-import streamlit as st
 from PIL import Image
 from datetime import datetime, timedelta
+import hashlib
 import time
-import gspread
-from google.oauth2.service_account import Credentials
 
 # =========================================
-# CONFIGURACIÓN GENERAL
+# CONFIG
 # =========================================
 
 st.set_page_config(page_title="Print Head Monitor", layout="wide")
 
-# Fondo industrial
 st.markdown("""
 <style>
 .stApp {
@@ -35,46 +30,24 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================
-# GOOGLE SHEETS (SECRETS)
+# CONNECTION GOOGLE SHEETS
 # =========================================
 
-SCOPE = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
+conn = st.connection("gsheets", type="gsheets")
 
-@st.cache_resource
-def connect_sheets():
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=SCOPE
-        )
-
-    client = gspread.authorize(creds)
-    return client.open("PrintHeadDB").sheet1
-
-sheet = connect_sheets()
-
-# =========================================
-# FUNCIONES DB (SHEETS)
-# =========================================
-
-def save_test(machine, health, fails, path):
-    sheet.append_row([
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        machine,
-        float(health),
-        int(fails),
-        path
-    ])
-
-
+@st.cache_data(ttl=5)
 def load_data():
-    data = sheet.get_all_records()
-    return pd.DataFrame(data)
+    try:
+        return conn.read()
+    except:
+        return pd.DataFrame()
+
+
+def save_data(df):
+    conn.update(data=df)
 
 # =========================================
-# AUTH
+# AUTH SIMPLE
 # =========================================
 
 USERS = {
@@ -106,7 +79,7 @@ machine = st.sidebar.selectbox("Máquina", ["M1", "M2", "M3"])
 sensibilidad = st.sidebar.slider("Sensibilidad", 0.01, 0.2, 0.05)
 
 # =========================================
-# UPLOAD + PROCESAMIENTO
+# PROCESAMIENTO
 # =========================================
 
 st.title("🖨️ Monitor Inteligente")
@@ -121,16 +94,21 @@ if file:
         img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blur, 50, 150)
-
         health = np.mean(gray) / 255 * 100
         fails = int(np.sum(gray < 50))
 
-        path = f"evidencia_{datetime.now().timestamp()}.jpg"
-        cv2.imwrite(path, img)
+        df = load_data()
 
-        save_test(machine, health, fails, path)
+        new_row = pd.DataFrame([{
+            "timestamp": datetime.now(),
+            "machine": machine,
+            "health": health,
+            "fails": fails
+        }])
+
+        df = pd.concat([df, new_row], ignore_index=True)
+
+        save_data(df)
 
         st.success(f"✅ Guardado {health:.2f}%")
 
@@ -141,21 +119,21 @@ if file:
 df = load_data()
 
 if not df.empty:
-    df.columns = ["timestamp", "machine", "health", "fails", "path"]
-
     st.subheader("📊 Vista General")
     st.dataframe(df)
 
-    st.subheader("📈 Rendimiento por Máquina")
-    chart = df.groupby("machine")["health"].mean()
-    st.bar_chart(chart)
+    if "machine" in df.columns:
+        st.subheader("📈 Rendimiento por Máquina")
+        chart = df.groupby("machine")["health"].mean()
+        st.bar_chart(chart)
 
-    st.subheader("📅 Últimos 7 días")
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    recent = df[df["timestamp"] > datetime.now() - timedelta(days=7)]
+    if "timestamp" in df.columns:
+        st.subheader("📅 Últimos 7 días")
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        recent = df[df["timestamp"] > datetime.now() - timedelta(days=7)]
 
-    if not recent.empty:
-        st.line_chart(recent.set_index("timestamp")["health"])
+        if not recent.empty:
+            st.line_chart(recent.set_index("timestamp")["health"])
 else:
     st.info("Sin datos aún")
 
