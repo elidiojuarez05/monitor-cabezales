@@ -1,7 +1,11 @@
-streamlit
-pandas
-numpy
+
 opencv-python-headless
 Pillow
 gspread
 google-auth
+streamlit
+pandas
+numpy
+streamlit-gsheets
+streamlit-cropper
+Pillow
