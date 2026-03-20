@@ -74,37 +74,39 @@ except ImportError as e:
     st.error(f"Error crítico de importación: {e}")
     st.stop()
 
-# =========================================================
-# 4. ADAPTADOR CRUD PARA GOOGLE SHEETS
-# =========================================================
-# Establecer conexión con GSheets (requiere secrets.toml)
-conn = st.connection("gsheets", type=GSheetsConnection)
+#base da datods
 
-class GSheetsDB:
+class PostgresDB:
     def __init__(self):
         try:
-            # NO PASAR ARGUMENTOS AQUÍ. 
-            # La librería leerá automáticamente la sección [connections.gsheets] de tus Secrets.
-            self.conn = st.connection("gsheets", type=GSheetsConnection)
-            
-            # Recuperamos la URL de los secrets para usarla en las funciones de lectura
-            self.url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+            # Conexión nativa de Streamlit a PostgreSQL
+            self.conn = st.connection("postgresql", type="sql")
         except Exception as e:
-            st.error(f"❌ Error al inicializar conexión: {e}")
-            self.conn = None
+            st.error(f"Error de conexión a la base de datos: {e}")
 
-    def safe_read(self, sheet_name):
-        if self.conn is None:
-            return pd.DataFrame()
+    def safe_read(self, table_name):
         try:
-            # Leemos la pestaña especificando URL y nombre
-            return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
+            # Consulta SQL directa
+            return self.conn.query(f"SELECT * FROM {table_name};", ttl=0)
         except Exception as e:
-            st.error(f"Error en pestaña '{sheet_name}': {e}")
+            st.error(f"Error al leer {table_name}: {e}")
             return pd.DataFrame()
 
-# Crear la instancia global inmediatamente
-db = GSheetsDB()
+    def save_test(self, maquina, operador, puntuacion, estado):
+        try:
+            with self.conn.session as s:
+                s.execute(
+                    st.text("INSERT INTO tests (maquina, operador, puntuacion, estado) VALUES (:m, :o, :p, :e)"),
+                    {"m": maquina, "o": operador, "p": puntuacion, "e": estado}
+                )
+                s.commit()
+            return True
+        except Exception as e:
+            st.error(f"Error al guardar: {e}")
+            return False
+
+# Instancia global
+db = PostgresDB()
             
 
 # =========================================================
