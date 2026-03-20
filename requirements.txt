@@ -1,10 +1,10 @@
-opencv-python-headless
-Pillow
-gspread
-google-auth
 streamlit
 pandas
 numpy
+opencv-python-headless
 streamlit-gsheets
 streamlit-cropper
+streamlit-webrtc
 Pillow
+qrcode
+validators
