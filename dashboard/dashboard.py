@@ -31,10 +31,6 @@ class PostgresDB:
             return pd.DataFrame()
 
 db = PostgresDB()
-
-# --- 2. CREACIÓN DEL OBJETO (ESTO EVITA EL NAMEERROR) ---
-db = PostgresDB()
-
 # --- 3. RESTO DEL CÓDIGO (LOGIN, DASHBOARD, ETC.) ---
 # Ahora sí puedes usar db.safe_read()
 df_usuarios = db.safe_read("usuarios")
@@ -184,30 +180,31 @@ if not st.session_state.authenticated:
     st.markdown("---")
     
     with st.container(border=True):
-        user_input = st.text_input("ID Operador", key="user_login")
-        password_input = st.text_input("Contraseña / PIN", type="password", key="pass_login")
+        # Usamos nombres distintos para las variables de entrada
+        u_input = st.text_input("ID Operador")
+        p_input = st.text_input("Contraseña / PIN", type="password")
         btn_login = st.button("🚀 Entrar al Monitor", use_container_width=True)
 
-    # CRÍTICO: Todo lo que usa 'df_usuarios' debe estar dentro de este 'if btn_login'
+    # El error ocurre porque intentas usar df_usuarios fuera de aquí.
+    # Mueve TODO lo relacionado con la base de datos ADENTRO de este bloque:
     if btn_login:
-        if user_input and password_input:
-            df_usuarios = db.safe_read("usuarios")
+        if u_input and p_input:
+            res_usuarios = db.safe_read("usuarios")
             
-            if not df_usuarios.empty:
-                # Normalizamos nombres de columnas (evita el AttributeError)
-                df_usuarios.columns = [str(c).lower().strip() for c in df_usuarios.columns]
+            if not res_usuarios.empty:
+                # Normalizamos columnas para que 'USUARIO' pase a ser 'usuario'
+                res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
                 
-                if 'usuario' in df_usuarios.columns:
-                    user_input_clean = user_input.strip().lower()
-                    
-                    # Realizamos la búsqueda solo ahora que tenemos los datos
-                    user_match = df_usuarios[df_usuarios['usuario'].astype(str).str.strip().lower() == user_input_clean]
+                if 'usuario' in res_usuarios.columns:
+                    u_clean = u_input.strip().lower()
+                    # Buscamos el match
+                    user_match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().lower() == u_clean]
                     
                     if not user_match.empty:
-                        stored_password = str(user_match.iloc[0]['contrasena'])
-                        if password_input == stored_password:
+                        stored_pass = str(user_match.iloc[0]['contrasena'])
+                        if p_input == stored_pass:
                             st.session_state.authenticated = True
-                            st.session_state.username = user_input_clean
+                            st.session_state.username = u_clean
                             st.success("✅ Acceso correcto.")
                             time.sleep(1)
                             st.rerun()
@@ -216,13 +213,13 @@ if not st.session_state.authenticated:
                     else:
                         st.error("❌ Usuario no encontrado.")
                 else:
-                    st.error(f"Error: La columna 'usuario' no existe. Columnas: {df_usuarios.columns.tolist()}")
+                    st.error(f"La columna 'usuario' no existe. Columnas: {res_usuarios.columns.tolist()}")
             else:
-                st.error("❌ No hay conexión con la base de datos o la tabla está vacía.")
+                st.error("❌ Error de conexión o tabla vacía.")
         else:
-            st.warning("⚠️ Por favor, completa ambos campos.")
+            st.warning("⚠️ Escribe tu ID y contraseña.")
     
-    st.stop() # Esto evita que el resto del dashboard cargue sin permiso
+    st.stop() # Esto es lo que impide que el resto del código falle
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
 # =========================================================
