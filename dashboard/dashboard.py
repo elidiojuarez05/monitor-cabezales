@@ -182,40 +182,41 @@ if not st.session_state.get('authenticated', False):
             btn_entrar = st.button("🚀 Entrar al Monitor", use_container_width=True)
 
         if btn_entrar:
-            if u_ingreso and p_ingreso:
-                res_usuarios = db.safe_read("usuarios")
+        if u_ingreso and p_ingreso:
+            res_usuarios = db.safe_read("usuarios")
+            
+            if not res_usuarios.empty:
+                # 1. Normalizamos nombres de columnas a minúsculas
+                res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
                 
-                if not res_usuarios.empty:
-                    res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
-                    if 'usuario' in res_usuarios.columns:
-                        u_clean = u_ingreso.strip().lower()
-                        # Comparamos todo en minúsculas y sin espacios
-                        u_clean = u_ingreso.strip().lower()
-                        match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
-                        st.write(f"DEBUG: Buscando usuario -> '{u_clean}'")
-                        st.write("DEBUG: Usuarios en BD:", res_usuarios['usuario'].tolist())
-                        st.write("DEBUG: Password ingresada:", p_ingreso)
-                        if not match.empty:
-                            # Forzamos a que ambos sean STRING para comparar "peras con peras"
-                            stored_pass = str(match.iloc[0]['contrasena']).strip()
-                            if str(p_ingreso).strip() == stored_pass:
-                                st.session_state.authenticated = True
-                                # ... resto del código
-                                st.session_state.username = u_clean
-                                st.session_state.user_role = str(match.iloc[0].get('rol', 'operador'))
-                                st.success("✅ Acceso concedido.")
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.error("❌ Contraseña incorrecta.")
-                        else:
-                            st.error("❌ El usuario no existe.")
+                # 2. Limpiamos la entrada del usuario
+                u_clean = str(u_ingreso).strip().lower()
+                
+                # 3. Buscamos el registro del usuario
+                match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
+                
+                if not match.empty:
+                    # --- EL CAMBIO CRÍTICO AQUÍ ---
+                    # Limpiamos AMBAS contraseñas: la de la BD y la que escribiste
+                    stored_pass = str(match.iloc[0]['contrasena']).strip()
+                    input_pass = str(p_ingreso).strip()
+                    
+                    if input_pass == stored_pass:
+                        st.session_state.authenticated = True
+                        st.session_state.username = u_clean
+                        st.session_state.user_role = str(match.iloc[0].get('rol', 'operador')).strip().lower()
+                        st.success("✅ Acceso concedido.")
+                        time.sleep(1)
+                        st.rerun()
                     else:
-                        st.error("Error: La columna 'usuario' no existe en la BD.")
+                        # Esto te ayudará a ver si hay caracteres invisibles
+                        st.error(f"❌ Contraseña incorrecta.")
+                        # Opcional: Descomenta la línea de abajo solo para probar
+                        # st.write(f"DEBUG: Escrita:'{input_pass}' | BD:'{stored_pass}'")
                 else:
-                    st.error("❌ No se pudo conectar con la base de datos (Tabla vacía).")
+                    st.error("❌ El usuario no existe.")
             else:
-                st.warning("⚠️ Escribe tu usuario y contraseña.")
+                st.error("❌ Error de conexión con la base de datos.")
     
     # ¡ESTA LÍNEA ES LA MÁS IMPORTANTE PARA QUE NO TRUENE EL CÓDIGO!
     st.stop() 
