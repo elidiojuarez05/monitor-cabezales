@@ -23,10 +23,11 @@ class PostgresDB:
 
     def safe_read(self, table_name):
         try:
-            # Usamos comillas dobles para los nombres de tabla en Postgres
+            # Usamos comillas dobles para que Postgres respete el nombre exacto
             return self.conn.query(f'SELECT * FROM "{table_name}";', ttl=0)
         except Exception as e:
-            st.error(f"Error al leer {table_name}")
+            # Esto nos dirá el error real en la pantalla de la oficina
+            st.error(f"Detalle del error: {e}") 
             return pd.DataFrame()
 
 # --- 2. CREACIÓN DEL OBJETO (ESTO EVITA EL NAMEERROR) ---
