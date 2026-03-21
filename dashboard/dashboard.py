@@ -432,23 +432,59 @@ with tab_gestion:
         with tab_admin_users:
             col_new_user, col_list_users = st.columns(2)
             
-            with col_new_user:
-                st.subheader("➕ Añadir Nuevo Usuario")
-                with st.container(border=True):
-                    nu_user = st.text_input("ID de Usuario Nuevo")
-                    nu_pass = st.text_input("Contraseña / PIN Inicial", type="password")
-                    nu_rol = st.selectbox("Rol del Sistema", ["operador", "admin"])
+            # --- SECCIÓN: USUARIOS (DENTRO DEL TAB DE GESTIÓN) ---
+            with tab_admin_users:
+                # Mostramos siempre el directorio para tener visibilidad rápida
+                st.subheader("📋 Directorio de Usuarios Activos")
+                df_users = db.safe_read("usuarios")
+                
+                if not df_users.empty:
+                    # Tabla limpia de usuarios actuales
+                    st.dataframe(df_users[['usuario', 'rol']], use_container_width=True, hide_index=True)
                     
-                    if st.button("💾 Crear Usuario", use_container_width=True):
-                        if nu_user and nu_pass:
-                            hashed_pass = hash_pw(nu_pass)
-                            q_insert = "INSERT INTO usuarios (usuario, contrasena, rol) VALUES (:u, :h, :r)"
-                            if db.execute_query(q_insert, {"u": nu_user.lower(), "h": hashed_pass, "r": nu_rol}):
-                                st.success(f"✅ Usuario '{nu_user}' creado exitosamente.")
-                                time.sleep(1)
-                                st.rerun()
-                        else:
-                            st.error("⚠️ Faltan datos para crear el usuario.")
+                    st.divider()
+                    
+                    # --- COLUMNAS PARA HIDE/SHOW (EXPANDERS) ---
+                    col_new, col_del = st.columns(2)
+                    
+                    with col_new:
+                        # EXPANDER PARA AGREGAR
+                        with st.expander("➕ Registrar Nuevo Usuario", expanded=False):
+                            st.markdown("### Datos de Acceso")
+                            nu_user = st.text_input("ID de Usuario (Ej: op_01)", key="new_u_input")
+                            nu_pass = st.text_input("Contraseña / PIN", type="password", key="new_p_input")
+                            nu_rol = st.selectbox("Nivel de Permisos", ["operador", "admin"], key="new_r_input")
+                            
+                            if st.button("🚀 Confirmar Registro", use_container_width=True):
+                                if nu_user and nu_pass:
+                                    hashed_pass = hash_pw(nu_pass)
+                                    q_insert = "INSERT INTO usuarios (usuario, contrasena, rol) VALUES (:u, :h, :r)"
+                                    if db.execute_query(q_insert, {"u": nu_user.lower(), "h": hashed_pass, "r": nu_rol}):
+                                        st.success(f"✅ '{nu_user}' añadido.")
+                                        time.sleep(1)
+                                        st.rerun()
+                                else:
+                                    st.error("⚠️ Completa todos los campos.")
+            
+                    with col_del:
+                        # EXPANDER PARA ELIMINAR
+                        with st.expander("🗑️ Dar de Baja Usuario", expanded=False):
+                            st.markdown("### Zona de Peligro")
+                            user_list = df_users['usuario'].tolist()
+                            user_to_delete = st.selectbox("Seleccione cuenta a borrar:", user_list, key="del_u_select")
+                            
+                            st.warning(f"Se eliminará permanentemente a: {user_to_delete}")
+                            if st.button("❌ Ejecutar Baja", type="primary", use_container_width=True):
+                                if user_to_delete == st.session_state.username:
+                                    st.error("🚫 No puedes eliminar tu propia sesión activa.")
+                                else:
+                                    q_delete = "DELETE FROM usuarios WHERE usuario = :u"
+                                    if db.execute_query(q_delete, {"u": user_to_delete}):
+                                        st.success(f"✅ Usuario '{user_to_delete}' removido.")
+                                        time.sleep(1)
+                                        st.rerun()
+                else:
+                    st.error("❌ Error al cargar la tabla de usuarios en Supabase.")
                             
             with col_list_users:
                 st.subheader("📋 Directorio de Usuarios")
