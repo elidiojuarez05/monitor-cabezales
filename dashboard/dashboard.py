@@ -18,17 +18,19 @@ import psycopg2 # Asegúrate de tenerlo en requirements.txt
 # --- 1. DEFINICIÓN DE LA BASE DE DATOS (DEBE IR ARRIBA) ---
 class PostgresDB:
     def __init__(self):
-        # Conexión nativa de Streamlit a PostgreSQL
-        self.conn = st.connection("postgresql", type="sql")
+        # Agregamos un pool_pre_ping para que verifique la conexión antes de fallar
+        self.conn = st.connection("postgresql", type="sql", pool_pre_ping=True)
 
     def safe_read(self, table_name):
         try:
-            # Usamos comillas dobles para que Postgres respete el nombre exacto
-            return self.conn.query(f'SELECT * FROM "{table_name}";', ttl=0)
+            # Importante: Usar comillas dobles para el nombre de la tabla
+            query = f'SELECT * FROM "{table_name}"'
+            return self.conn.query(query, ttl=0)
         except Exception as e:
-            # Esto nos dirá el error real en la pantalla de la oficina
-            st.error(f"Detalle del error: {e}") 
+            st.error(f"Detalle del error: {e}")
             return pd.DataFrame()
+
+db = PostgresDB()
 
 # --- 2. CREACIÓN DEL OBJETO (ESTO EVITA EL NAMEERROR) ---
 db = PostgresDB()
