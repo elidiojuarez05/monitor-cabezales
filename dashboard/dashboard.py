@@ -78,34 +78,15 @@ except ImportError as e:
 
 class PostgresDB:
     def __init__(self):
-        try:
-            # Conexión nativa de Streamlit a PostgreSQL
-            self.conn = st.connection("postgresql", type="sql")
-        except Exception as e:
-            st.error(f"Error de conexión a la base de datos: {e}")
+        # Esta línea busca automáticamente los secrets que acabas de pegar
+        self.conn = st.connection("postgresql", type="sql")
 
     def safe_read(self, table_name):
-        try:
-            # Consulta SQL directa
-            return self.conn.query(f"SELECT * FROM {table_name};", ttl=0)
-        except Exception as e:
-            st.error(f"Error al leer {table_name}: {e}")
-            return pd.DataFrame()
+        # ttl=0 es fundamental: obliga a la app a leer la DB cada vez 
+        # para que veas al instante lo que se mande desde el celular.
+        return self.conn.query(f"SELECT * FROM {table_name};", ttl=0)
 
-    def save_test(self, maquina, operador, puntuacion, estado):
-        try:
-            with self.conn.session as s:
-                s.execute(
-                    st.text("INSERT INTO tests (maquina, operador, puntuacion, estado) VALUES (:m, :o, :p, :e)"),
-                    {"m": maquina, "o": operador, "p": puntuacion, "e": estado}
-                )
-                s.commit()
-            return True
-        except Exception as e:
-            st.error(f"Error al guardar: {e}")
-            return False
-
-# Instancia global
+# Iniciamos la base de datos para todo el programa
 db = PostgresDB()
             
 
