@@ -189,6 +189,8 @@ if not df_usuarios.empty:
 
 # --- 3. VALIDACIÓN DEL LOGIN ---
 if not df_usuarios.empty:
+    st.write("Columnas detectadas:", df_usuarios.columns.tolist())
+    st.write("Contenido de la tabla:", df_usuarios)
     # Ahora buscamos al usuario con seguridad absoluta
     user_match = df_usuarios[df_usuarios['usuario'].astype(str).str.strip().lower() == user_input.strip().lower()]
     
