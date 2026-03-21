@@ -169,54 +169,70 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
 # =========================================================
 # 7. LÓGICA DE AUTENTICACIÓN (LOGIN)
 # =========================================================
+
+# 1. Verificamos si ya estamos logueados
 if not st.session_state.get('authenticated', False):
+    # Ocultamos el resto de la interfaz (Sidebar y Dashboard)
+    st.markdown("""
+        <style>
+            [data-testid="stSidebar"], [data-testid="stHeader"] {display: none;}
+            .stApp {background-color: #0e1117;}
+        </style>
+    """, unsafe_allow_html=True)
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("<h2 style='text-align: center;'>🏭 Print Head Monitor</h2>", unsafe_allow_html=True)
+        st.markdown("<br><br><h2 style='text-align: center;'>🔐 Acceso al Sistema</h2>", unsafe_allow_html=True)
         
         with st.container(border=True):
-            st.markdown("### 🔐 Acceso al Sistema")
-            u_ingreso = st.text_input("ID Operador", key="id_op")
-            p_ingreso = st.text_input("Contraseña / PIN", type="password", key="pass_op")
+            u_ingreso = st.text_input("ID Operador", key="main_user")
+            p_ingreso = st.text_input("Contraseña / PIN", type="password", key="main_pass")
             btn_entrar = st.button("🚀 Entrar al Monitor", use_container_width=True)
 
         if btn_entrar:
             if u_ingreso and p_ingreso:
-                res_usuarios = db.safe_read("usuarios")
-                
-                if not res_usuarios.empty:
-                    # Normalizar columnas
-                    res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
-                    u_clean = str(u_ingreso).strip().lower()
+                with st.spinner("Validando credenciales..."):
+                    res_usuarios = db.safe_read("usuarios")
                     
-                    match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
-                    
-                    if not match.empty:
-                        # 1. Obtener el hash de la base de datos y limpiarlo de cualquier espacio
-                        stored_hash = str(match.iloc[0]['contrasena']).strip().lower()
+                    if not res_usuarios.empty:
+                        # Normalizar columnas
+                        res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
+                        u_clean = str(u_ingreso).strip().lower()
                         
-                        # 2. Generar el hash de lo que escribiste, asegurando que no haya espacios
-                        # Usamos .strip() en p_ingreso por si el teclado puso un espacio al final
-                        input_hash = hashlib.sha256(p_ingreso.strip().encode('utf-8')).hexdigest().lower()
+                        # Buscar usuario
+                        match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().lower() == u_clean]
                         
-                        # 3. Comparación
-                        if input_hash == stored_hash:
-                            st.session_state.authenticated = True
-                            st.session_state.username = u_clean
+                        if not match.empty:
+                            stored_hash = str(match.iloc[0]['contrasena']).strip().lower()
+                            # Generar hash de la entrada
+                            input_hash = hashlib.sha256(p_ingreso.strip().encode('utf-8')).hexdigest().lower()
                             
-                            # Esta línea es la que le da el valor a la que fallaba:
-                            # Usamos .get() por si la columna en la BD se llama distinto
-                            raw_role = match.iloc[0].get('rol', 'operador')
-                            st.session_state.user_role = str(raw_role).strip() if raw_role else 'operador'
-                            
-                            st.success("✅ Acceso concedido.")
-                            time.sleep(1)
-                            st.rerun()
-st.stop()
+                            if input_hash == stored_hash:
+                                # ¡ÉXITO! Guardamos en el estado de sesión
+                                st.session_state.authenticated = True
+                                st.session_state.username = u_clean
+                                st.session_state.user_role = str(match.iloc[0].get('rol', 'operador')).lower()
+                                st.success("✅ Acceso correcto. Cargando...")
+                                time.sleep(1)
+                                st.rerun() # Esto obliga a la app a reiniciarse y saltarse este bloque
+                            else:
+                                st.error("❌ Contraseña incorrecta.")
+                        else:
+                            st.error(f"❌ El usuario '{u_clean}' no existe.")
+                    else:
+                        st.error("❌ Error: No hay conexión con la base de datos de usuarios.")
+            else:
+                st.warning("⚠️ Completa todos los campos.")
+    
+    # MUY IMPORTANTE: Si no ha pasado el login, el código se detiene aquí.
+    st.stop() 
+
+
+# ... aquí sigue el resto de tu código del dashboard ...
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
 # =========================================================
+st.sidebar.success(f"Conectado como: {st.session_state.username}")
 st.markdown(f"""
     <div style="background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%); padding: 15px; border-radius: 8px; border-left: 5px solid #3b82f6; margin-bottom: 20px;">
         <h1 style="font-size: 32px; color: #f8fafc; margin: 0; font-family: 'Arial', sans-serif;">
