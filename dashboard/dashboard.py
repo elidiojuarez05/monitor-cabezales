@@ -204,17 +204,15 @@ if not st.session_state.get('authenticated', False):
                         if input_hash == stored_hash:
                             st.session_state.authenticated = True
                             st.session_state.username = u_clean
-                            st.session_state.user_role = str(match.iloc[0].get('rol', 'operador')).strip().lower()
+                            
+                            # Esta línea es la que le da el valor a la que fallaba:
+                            # Usamos .get() por si la columna en la BD se llama distinto
+                            raw_role = match.iloc[0].get('rol', 'operador')
+                            st.session_state.user_role = str(raw_role).strip() if raw_role else 'operador'
+                            
                             st.success("✅ Acceso concedido.")
                             time.sleep(1)
                             st.rerun()
-                        else:
-                            st.error("❌ Contraseña incorrecta.")
-                            # SOLO PARA DEPURAR (Borra estas líneas después de entrar):
-                            # st.write(f"Tu Hash: {input_hash}")
-                            # st.write(f"BD Hash: {stored_hash}")
-                    else:
-                        st.error(f"❌ El usuario '{u_clean}' no existe.")
 
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
@@ -230,7 +228,8 @@ st.markdown(f"""
 
 with st.sidebar:
     st.markdown(f"### 👤 {st.session_state.username}")
-    st.caption(f"🎖️ {st.session_state.user_role.upper()}")
+    rol_display = str(st.session_state.get('user_role', 'Operador')).upper()
+    st.caption(f"🎖️ {rol_display}")
 
     st.divider()
     st.subheader("🛠️ Parámetros de Escaneo")
