@@ -178,31 +178,47 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
 # =========================================================
 # 7. LÓGICA DE AUTENTICACIÓN (LOGIN)
 # =========================================================
-# --- 1. LEER LOS USUARIOS ---
-# --- 1. LEER LOS USUARIOS DE SUPABASE ---
-df_usuarios = db.safe_read("usuarios")
 
-# --- 2. LIMPIEZA DE COLUMNAS (Para evitar el AttributeError) ---
-if not df_usuarios.empty:
-    # Esto convierte 'USUARIO', ' Usuario' o 'uSuArIo' en 'usuario'
-    df_usuarios.columns = [str(c).lower().strip() for c in df_usuarios.columns]
-
-# --- 3. VALIDACIÓN DEL LOGIN ---
-if not df_usuarios.empty:
-    st.write("Columnas detectadas:", df_usuarios.columns.tolist())
-    st.write("Contenido de la tabla:", df_usuarios)
-    # Ahora buscamos al usuario con seguridad absoluta
-    user_match = df_usuarios[df_usuarios['usuario'].astype(str).str.strip().lower() == user_input.strip().lower()]
+if not st.session_state.authenticated:
+    st.markdown("### 🔐 Acceso al Sistema")
+    st.markdown("---")
     
-    if not user_match.empty:
-        # Extraemos los datos de la fila encontrada
-        stored_password = str(user_match.iloc[0]['contrasena'])
-        user_role = str(user_match.iloc[0]['rol'])
+    # Creamos el formulario de entrada
+    with st.container(border=True):
+        user_input = st.text_input("ID Operador")
+        password_input = st.text_input("Contraseña / PIN", type="password")
+        btn_login = st.button("🚀 Entrar al Monitor", use_container_width=True)
+
+    if btn_login:
+        # SOLO leemos la base de datos cuando el usuario hace clic
+        df_usuarios = db.safe_read("usuarios")
         
-        # Aquí sigue tu validación de contraseña normal:
-        # if password_input == stored_password: ...
-else:
-    st.error("⚠️ La tabla de usuarios está vacía. Revisa el 'Table Editor' en Supabase.")
+        if not df_usuarios.empty:
+            # Limpiamos los nombres de las columnas por si vienen en mayúsculas
+            df_usuarios.columns = [str(c).lower().strip() for c in df_usuarios.columns]
+            
+            # Buscamos al usuario (A prueba de errores)
+            user_input_clean = user_input.strip().lower()
+            user_match = df_usuarios[df_usuarios['usuario'].astype(str).str.strip().lower() == user_input_clean]
+            
+            if not user_match.empty:
+                # Verificamos contraseña (puedes usar hashes después, aquí usamos texto plano para probar)
+                stored_password = str(user_match.iloc[0]['contrasena'])
+                if password_input == stored_password:
+                    st.session_state.authenticated = True
+                    st.session_state.username = str(user_match.iloc[0]['usuario'])
+                    st.session_state.user_role = str(user_match.iloc[0]['rol'])
+                    st.success("✅ Acceso concedido. Cargando planta...")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Contraseña incorrecta.")
+            else:
+                st.error("❌ El usuario no existe en el sistema.")
+        else:
+            st.error("❌ No se pudo conectar con la tabla de usuarios.")
+    
+    st.stop() # Detiene la ejecución hasta que el usuario se autentique
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
 # =========================================================
