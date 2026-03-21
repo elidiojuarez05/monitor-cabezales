@@ -11,6 +11,30 @@ from datetime import datetime, timedelta
 import time
 import base64
 from streamlit_gsheets import GSheetsConnection
+import streamlit as st
+import pandas as pd
+import psycopg2 # Asegúrate de tenerlo en requirements.txt
+
+# --- 1. DEFINICIÓN DE LA BASE DE DATOS (DEBE IR ARRIBA) ---
+class PostgresDB:
+    def __init__(self):
+        # Conexión nativa de Streamlit a PostgreSQL
+        self.conn = st.connection("postgresql", type="sql")
+
+    def safe_read(self, table_name):
+        try:
+            # Usamos comillas dobles para los nombres de tabla en Postgres
+            return self.conn.query(f'SELECT * FROM "{table_name}";', ttl=0)
+        except Exception as e:
+            st.error(f"Error al leer {table_name}")
+            return pd.DataFrame()
+
+# --- 2. CREACIÓN DEL OBJETO (ESTO EVITA EL NAMEERROR) ---
+db = PostgresDB()
+
+# --- 3. RESTO DEL CÓDIGO (LOGIN, DASHBOARD, ETC.) ---
+# Ahora sí puedes usar db.safe_read()
+df_usuarios = db.safe_read("usuarios")
 
 # =========================================================
 # 1. CONFIGURACIÓN DE PÁGINA Y TEMA INDUSTRIAL
@@ -75,22 +99,6 @@ except ImportError as e:
     st.stop()
 
 #base da datods
-
-class PostgresDB:
-    def __init__(self):
-        try:
-            # st.connection ya sabe buscar [connections.postgresql]
-            self.conn = st.connection("postgresql", type="sql")
-        except Exception as e:
-            st.error("No se pudo conectar a la base de datos. Revisa los Secrets.")
-
-    def safe_read(self, table_name):
-        try:
-            # Agregamos ttl=0 para que no guarde basura en memoria
-            return self.conn.query(f'SELECT * FROM "{table_name}";', ttl=0)
-        except Exception as e:
-            st.error(f"Error al leer la tabla {table_name}")
-            return pd.DataFrame()
             
 
 # =========================================================
