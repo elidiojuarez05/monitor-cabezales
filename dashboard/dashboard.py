@@ -122,6 +122,7 @@ except ImportError as e:
 # =========================================================
 # 5. INICIALIZACIÓN DE SESSION STATE Y VARIABLES GLOBALES
 # =========================================================
+if 'last_error' not in st.session_state: st.session_state.last_error = None
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'user_role' not in st.session_state: st.session_state.user_role = None
 if 'username' not in st.session_state: st.session_state.username = None
@@ -244,6 +245,15 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
+
+
+# --- VISUALIZADOR DE ERRORES PERSISTENTE ---
+if st.session_state.last_error:
+    with st.container(border=True):
+        st.error(f"⚠️ **Error Detectado:** {st.session_state.last_error}")
+        if st.button("Reintentar / Limpiar Error"):
+            st.session_state.last_error = None
+            st.rerun()
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown(f"### 👤 {st.session_state.username}")
