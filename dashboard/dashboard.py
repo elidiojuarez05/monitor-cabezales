@@ -213,7 +213,7 @@ if not st.session_state.get('authenticated', False):
                             st.success("✅ Acceso concedido.")
                             time.sleep(1)
                             st.rerun()
-
+st.stop()
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
 # =========================================================
