@@ -175,51 +175,55 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
 # 7. LÓGICA DE AUTENTICACIÓN (LOGIN)
 # =========================================================
 
-if not st.session_state.authenticated:
+# =========================================================
+# 7. LÓGICA DE AUTENTICACIÓN (LOGIN)
+# =========================================================
+
+if not st.session_state.get('authenticated', False):
     st.markdown("### 🔐 Acceso al Sistema")
-    st.markdown("---")
+    st.info("Ingresa tus credenciales para conectar con la planta.")
     
     with st.container(border=True):
-        # Usamos nombres distintos para las variables de entrada
-        u_input = st.text_input("ID Operador")
-        p_input = st.text_input("Contraseña / PIN", type="password")
-        btn_login = st.button("🚀 Entrar al Monitor", use_container_width=True)
+        u_ingreso = st.text_input("ID Operador", key="id_op")
+        p_ingreso = st.text_input("Contraseña / PIN", type="password", key="pass_op")
+        btn_entrar = st.button("🚀 Entrar al Monitor", use_container_width=True)
 
-    # El error ocurre porque intentas usar df_usuarios fuera de aquí.
-    # Mueve TODO lo relacionado con la base de datos ADENTRO de este bloque:
-    if btn_login:
-        if u_input and p_input:
+    if btn_entrar:
+        if u_ingreso and p_ingreso:
+            # LEER DB SOLO AQUÍ (evita el error al cargar)
             res_usuarios = db.safe_read("usuarios")
             
             if not res_usuarios.empty:
-                # Normalizamos columnas para que 'USUARIO' pase a ser 'usuario'
+                # Limpiamos nombres de columnas (pasa 'USUARIO' a 'usuario')
                 res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
                 
+                # Verificación de seguridad
                 if 'usuario' in res_usuarios.columns:
-                    u_clean = u_input.strip().lower()
-                    # Buscamos el match
-                    user_match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().lower() == u_clean]
+                    u_clean = u_ingreso.strip().lower()
+                    # Buscamos el operador
+                    match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().lower() == u_clean]
                     
-                    if not user_match.empty:
-                        stored_pass = str(user_match.iloc[0]['contrasena'])
-                        if p_input == stored_pass:
+                    if not match.empty:
+                        stored_pass = str(match.iloc[0]['contrasena'])
+                        if p_ingreso == stored_pass:
                             st.session_state.authenticated = True
                             st.session_state.username = u_clean
-                            st.success("✅ Acceso correcto.")
+                            st.session_state.user_role = str(match.iloc[0]['rol'])
+                            st.success("✅ Acceso concedido.")
                             time.sleep(1)
                             st.rerun()
                         else:
                             st.error("❌ Contraseña incorrecta.")
                     else:
-                        st.error("❌ Usuario no encontrado.")
+                        st.error("❌ El usuario no existe.")
                 else:
-                    st.error(f"La columna 'usuario' no existe. Columnas: {res_usuarios.columns.tolist()}")
+                    st.error(f"Error de base de datos: No existe la columna 'usuario'. Columnas actuales: {res_usuarios.columns.tolist()}")
             else:
-                st.error("❌ Error de conexión o tabla vacía.")
+                st.error("❌ No se pudo conectar con la tabla de usuarios en Supabase.")
         else:
-            st.warning("⚠️ Escribe tu ID y contraseña.")
+            st.warning("⚠️ Escribe tu usuario y contraseña.")
     
-    st.stop() # Esto es lo que impide que el resto del código falle
+    # MUY IMPORTANTE: Detenemos la ejecución aquí si no está logueado
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
 # =========================================================
