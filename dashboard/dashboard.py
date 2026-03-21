@@ -191,41 +191,44 @@ if not st.session_state.get('authenticated', False):
 
         if btn_entrar:
             if u_ingreso and p_ingreso:
-                with st.spinner("Validando credenciales..."):
-                    res_usuarios = db.safe_read("usuarios")
+                res_usuarios = db.safe_read("usuarios")
+                
+                if not res_usuarios.empty:
+                    # 1. Normalizamos nombres de columnas (Pasa 'USUARIO' a 'usuario')
+                    res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
                     
-                    if not res_usuarios.empty:
-                        # Normalizar columnas
-                        res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
-                        u_clean = str(u_ingreso).strip().lower()
-                        
-                        # Buscar usuario
-                        match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().lower() == u_clean]
+                    # 2. Limpiamos la entrada del operador
+                    u_clean = str(u_ingreso).strip().lower()
+                    
+                    # 3. BUSQUEDA CORREGIDA (Aquí estaba el error)
+                    # Agregamos .str antes de .lower()
+                    try:
+                        match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
                         
                         if not match.empty:
                             stored_hash = str(match.iloc[0]['contrasena']).strip().lower()
-                            # Generar hash de la entrada
                             input_hash = hashlib.sha256(p_ingreso.strip().encode('utf-8')).hexdigest().lower()
                             
                             if input_hash == stored_hash:
-                                # ¡ÉXITO! Guardamos en el estado de sesión
                                 st.session_state.authenticated = True
                                 st.session_state.username = u_clean
                                 st.session_state.user_role = str(match.iloc[0].get('rol', 'operador')).lower()
-                                st.success("✅ Acceso correcto. Cargando...")
+                                st.success("✅ Acceso correcto.")
                                 time.sleep(1)
-                                st.rerun() # Esto obliga a la app a reiniciarse y saltarse este bloque
+                                st.rerun()
                             else:
                                 st.error("❌ Contraseña incorrecta.")
                         else:
                             st.error(f"❌ El usuario '{u_clean}' no existe.")
-                    else:
-                        st.error("❌ Error: No hay conexión con la base de datos de usuarios.")
+                    except KeyError:
+                        st.error("❌ Error interno: No se encuentra la columna 'usuario' en la tabla.")
+                else:
+                    st.error("❌ Error de conexión con la base de datos.")
             else:
-                st.warning("⚠️ Completa todos los campos.")
-    
-    # MUY IMPORTANTE: Si no ha pasado el login, el código se detiene aquí.
-    st.stop() 
+                st.warning("⚠️ Completa ambos campos.")
+        
+        # ESTO EVITA QUE EL LOGIN SE VEA "DENTRO" DEL DASHBOARD
+        st.stop()
 
 
 # ... aquí sigue el resto de tu código del dashboard ...
