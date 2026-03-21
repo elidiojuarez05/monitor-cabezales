@@ -189,7 +189,8 @@ if not st.session_state.get('authenticated', False):
                     res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
                     if 'usuario' in res_usuarios.columns:
                         u_clean = u_ingreso.strip().lower()
-                        match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().lower() == u_clean]
+                        # Fíjate que ahora dice .str.lower() al final
+                        match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
                         
                         if not match.empty:
                             stored_pass = str(match.iloc[0]['contrasena'])
