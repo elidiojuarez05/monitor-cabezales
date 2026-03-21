@@ -10,43 +10,88 @@ from PIL import Image
 from datetime import datetime, timedelta
 import time
 import base64
-from streamlit_gsheets import GSheetsConnection
+from sqlalchemy import text
 
 # =========================================================
 # 1. CONFIGURACIÓN DE PÁGINA Y TEMA INDUSTRIAL
 # =========================================================
 st.set_page_config(page_title="Print Head Monitor", layout="wide", initial_sidebar_state="expanded")
 
-# Inyección de CSS para Tema Industrial Profesional
 st.markdown("""
     <style>
-    /* Fondo principal oscuro y texto claro */
     .stApp { background-color: #0e1117; color: #e0e6ed; }
-    
-    /* Estilo de métricas (High Contrast) */
     div[data-testid="stMetricValue"] { color: #00ff41; font-family: 'Courier New', Courier, monospace; font-weight: bold; }
-    
-    /* Botones estilo panel de control industrial */
     .stButton>button {
         background-color: #1e3a8a; color: white; border-radius: 4px; border: 1px solid #3b82f6; font-weight: bold;
         transition: all 0.3s ease;
     }
     .stButton>button:hover { background-color: #3b82f6; border: 1px solid #60a5fa; box-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
-    
-    /* Contenedores y bordes */
     div[data-testid="stContainer"] { border-color: #334155 !important; background-color: #1e293b; border-radius: 8px; }
-    
-    /* Sidebar */
     section[data-testid="stSidebar"] { background-color: #111827; border-right: 1px solid #334155; }
-    
-    /* Encabezados */
     h1, h2, h3 { color: #f8fafc; font-family: 'Arial', sans-serif; }
     hr { border-color: #334155; }
     </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# 2. CONFIGURACIÓN DE RUTAS Y PATHS
+# 2. DEFINICIÓN DE LA BASE DE DATOS (POSTGRESQL / SUPABASE)
+# =========================================================
+class PostgresDB:
+    def __init__(self):
+        self.conn = st.connection("postgresql", type="sql", pool_pre_ping=True)
+
+    def safe_read(self, table_name):
+        try:
+            return self.conn.query(f'SELECT * FROM "{table_name}"', ttl=0)
+        except Exception as e:
+            st.error(f"Error al leer {table_name}: {e}")
+            return pd.DataFrame()
+
+    def execute_query(self, query, params=None):
+        try:
+            with self.conn.session as s:
+                s.execute(text(query), params or {})
+                s.commit()
+            return True
+        except Exception as e:
+            st.error(f"Error SQL: {e}")
+            return False
+
+    def get_test_by_date(self, m_name, fecha_consulta):
+        df = self.safe_read("tests")
+        if df.empty or 'timestamp' not in df.columns: return None
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        mask = (df['machine_name'] == m_name) & (df['timestamp'].dt.date == fecha_consulta)
+        res = df[mask]
+        if not res.empty: return res.sort_values('timestamp', ascending=False).iloc[0]
+        return None
+
+    def get_machine_history(self, m_name, limit=10):
+        df = self.safe_read("tests")
+        if df.empty or 'timestamp' not in df.columns: return pd.DataFrame(columns=['timestamp', 'health_score'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        return df[df['machine_name'] == m_name].sort_values('timestamp', ascending=False).head(limit)
+
+    def save_test_result(self, machine_name, health, missing, mapa, ruta):
+        q = """INSERT INTO tests (machine_name, timestamp, health_score, missing_nodes, ruta_evidencia) 
+               VALUES (:m, :t, :h, :n, :r)"""
+        p = {"m": machine_name, "t": datetime.now(), "h": health, "n": missing, "r": ruta}
+        self.execute_query(q, p)
+
+    def get_history_range(self, start, end):
+        df = self.safe_read("tests")
+        if df.empty or 'timestamp' not in df.columns: return pd.DataFrame()
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        mask = (df['timestamp'].dt.date >= start) & (df['timestamp'].dt.date <= end)
+        return df[mask]
+
+db = PostgresDB()
+
+def hash_pw(password):
+    return hashlib.sha256(str(password).strip().encode('utf-8')).hexdigest().lower()
+
+# =========================================================
+# 3. CONFIGURACIÓN DE RUTAS Y PATHS
 # =========================================================
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
@@ -65,7 +110,7 @@ for path in [EVIDENCIAS_PATH, REPORTES_PATH]:
     if not os.path.exists(path): os.makedirs(path)
 
 # =========================================================
-# 3. IMPORTS DE MÓDULOS PROPIOS
+# 4. IMPORTS DE MÓDULOS PROPIOS
 # =========================================================
 try:
     import image_processor
@@ -73,34 +118,6 @@ try:
 except ImportError as e:
     st.error(f"Error crítico de importación: {e}")
     st.stop()
-
-# =========================================================
-# 4. ADAPTADOR CRUD PARA GOOGLE SHEETS
-# =========================================================
-# Establecer conexión con GSheets (requiere secrets.toml)
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-class GSheetsDB:
-    def __init__(self):
-        try:
-            # Conexión limpia: Streamlit tomará los datos de los Secrets automáticamente
-            self.conn = st.connection("gsheets", type=GSheetsConnection)
-            # Guardamos la URL para las lecturas
-            self.url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        except Exception as e:
-            st.error(f"❌ Error de Conexión: {e}")
-            self.conn = None
-
-    def safe_read(self, sheet_name):
-        if not self.conn: return pd.DataFrame()
-        try:
-            # Leemos la pestaña usando la URL de los secrets
-            return self.conn.read(spreadsheet=self.url, worksheet=sheet_name, ttl=0)
-        except Exception as e:
-            st.error(f"Error al leer la pestaña '{sheet_name}': {e}")
-            return pd.DataFrame()
-
-db = GSheetsDB()
 
 # =========================================================
 # 5. INICIALIZACIÓN DE SESSION STATE Y VARIABLES GLOBALES
@@ -128,9 +145,9 @@ def guardar_evidencia_fisica(imagen_pil, nombre_maquina):
     return full_path
 
 def render_machine_card(m_name, fecha_consulta, suffix=""):
-    last_test = GSheetsCRUD.get_test_by_date(m_name, fecha_consulta)
+    last_test = db.get_test_by_date(m_name, fecha_consulta)
     estado_actual = st.session_state.estados_maquinas.get(m_name, "Operativa")
-    fecha_ultimo = last_test.timestamp.strftime('%d/%m/%Y %H:%M') if last_test else "Sin registros"
+    fecha_ultimo = last_test.timestamp.strftime('%d/%m/%Y %H:%M') if last_test is not None else "Sin registros"
 
     opciones_estilo = {
         "Operativa": {"color_b": "#10b981", "color_f": "rgba(16, 185, 129, 0.05)", "icon": "✅"},
@@ -141,7 +158,7 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
     }
     estilo = opciones_estilo.get(estado_actual, opciones_estilo["Operativa"])
     
-    if estado_actual == "Operativa" and last_test:
+    if estado_actual == "Operativa" and last_test is not None:
         salud = float(last_test.health_score)
         if salud < 75: estilo["color_b"] = "#f59e0b"
         if salud < 50: estilo["color_b"] = "#ef4444"
@@ -156,7 +173,7 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
             st.metric("Status de Salud", f"{salud:.1f}%", f"-{last_test.missing_nodes} Nodos", delta_color="inverse")
             st.caption(f"Último escaneo: {fecha_ultimo}")
             
-            history = GSheetsCRUD.get_machine_history(m_name, limit=10)
+            history = db.get_machine_history(m_name, limit=10)
             if not history.empty:
                 st.line_chart(history.set_index('timestamp')['health_score'], height=120, color=estilo["color_b"])
     else:
@@ -174,29 +191,45 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
         """, unsafe_allow_html=True)
 
 # =========================================================
-# 7. LÓGICA DE AUTENTICACIÓN (LOGIN)
+# 7. LÓGICA DE AUTENTICACIÓN (LOGIN AISLADO)
 # =========================================================
-if not st.session_state.authenticated:
+if not st.session_state.get('authenticated', False):
+    st.markdown("<style>section[data-testid='stSidebar'] {display: none;}</style>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<h1 style='text-align: center; color: #3b82f6;'>🔐 Acceso al Sistema</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #94a3b8;'>Panel de Control de Inyectores</p>", unsafe_allow_html=True)
-        
-        user_input = st.text_input("ID Operador")
-        pass_input = st.text_input("Contraseña / PIN", type="password")
-        
-        if st.button("Autenticar", type="primary", use_container_width=True):
-            user = GSheetsCRUD.get_user_by_username(user_input)
-            if user and user.password == hashlib.sha256(pass_input.encode()).hexdigest():
-                st.session_state.update({
-                    "authenticated": True, 
-                    "user_role": user.role, 
-                    "username": user.username
-                })
-                st.rerun()
+        st.markdown("<br><br><h2 style='text-align: center;'>🏭 Print Head Monitor</h2>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("### 🔐 Acceso al Sistema")
+            u_ingreso = st.text_input("ID Operador", key="id_op")
+            p_ingreso = st.text_input("Contraseña / PIN", type="password", key="pass_op")
+            btn_entrar = st.button("🚀 Entrar al Monitor", use_container_width=True)
+
+        if btn_entrar:
+            if u_ingreso and p_ingreso:
+                res_usuarios = db.safe_read("usuarios")
+                if not res_usuarios.empty:
+                    res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
+                    u_clean = u_ingreso.strip().lower()
+                    match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
+                    
+                    if not match.empty:
+                        stored_hash = str(match.iloc[0]['contrasena']).strip().lower()
+                        if hash_pw(p_ingreso) == stored_hash:
+                            st.session_state.authenticated = True
+                            st.session_state.username = u_clean
+                            st.session_state.user_role = str(match.iloc[0].get('rol', 'operador')).strip().lower()
+                            st.success("✅ Acceso concedido.")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ Contraseña incorrecta.")
+                    else:
+                        st.error("❌ El usuario no existe.")
+                else:
+                    st.error("❌ No hay conexión con la base de datos.")
             else:
-                st.error("Credenciales incorrectas o problema de conexión con GSheets.")
-    st.stop()
+                st.warning("⚠️ Escribe tu usuario y contraseña.")
+    st.stop() # Bloqueo maestro.
 
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
@@ -214,7 +247,7 @@ st.markdown(f"""
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown(f"### 👤 {st.session_state.username}")
-    st.caption(f"🎖️ {st.session_state.user_role.upper()}")
+    st.caption(f"🎖️ {str(st.session_state.user_role).upper()}")
 
     with st.expander("⚙️ Editar Mi Perfil"):
         new_user_val = st.text_input("Nuevo usuario", value=st.session_state.username)
@@ -222,15 +255,17 @@ with st.sidebar:
         confirm_pass_val = st.text_input("Confirmar Nueva Contraseña", type="password")
         old_pw = st.text_input("Contraseña Actual", type="password")
         
-        if st.button("💾 Guardar"):
-            user_db = GSheetsCRUD.get_user_by_username(st.session_state.username)
-            if old_pw and user_db and user_db.password == hashlib.sha256(old_pw.encode()).hexdigest():
+        if st.button("💾 Guardar Cambios"):
+            df_u = db.safe_read("usuarios")
+            match = df_u[df_u['usuario'].astype(str).str.strip().str.lower() == st.session_state.username.lower()]
+            if not match.empty and old_pw and hash_pw(old_pw) == str(match.iloc[0]['contrasena']).strip().lower():
                 if new_pass_val == confirm_pass_val:
-                    h_new = hashlib.sha256(new_pass_val.encode()).hexdigest() if new_pass_val else user_db.password
-                    if GSheetsCRUD.update_user_credentials(st.session_state.username, new_user_val, h_new):
-                        st.session_state.username = new_user_val
-                        st.success("✅ Perfil actualizado")
-                        time.sleep(1); st.rerun()
+                    h_new = hash_pw(new_pass_val) if new_pass_val else hash_pw(old_pw)
+                    db.execute_query("UPDATE usuarios SET usuario = :nu, contrasena = :np WHERE usuario = :ou",
+                                     {"nu": new_user_val.lower(), "np": h_new, "ou": st.session_state.username.lower()})
+                    st.session_state.username = new_user_val.lower()
+                    st.success("✅ Perfil actualizado")
+                    time.sleep(1); st.rerun()
                 else: st.error("❌ Contraseñas no coinciden")
             else: st.error("❌ Credenciales inválidas")
 
@@ -259,7 +294,7 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.rerun()
 
-# --- LÓGICA DE CÁMARA (CORREGIDA) ---
+# --- LÓGICA DE CÁMARA ---
 if run_camera:
     st.info(f"Modo de inspección activo para: **{machine_selected_global}**")
     foto = st.camera_input("Capturar Evidencia de Test")
@@ -303,8 +338,8 @@ if run_camera:
                         
                         ruta_evidencia = guardar_evidencia_fisica(img_pil, machine_selected_global)
                         
-                        # Guardar en GSheets
-                        GSheetsCRUD.save_test_result(machine_selected_global, salud, fallas, mapa.tolist(), ruta_evidencia)
+                        # Guardar en PostgreSQL
+                        db.save_test_result(machine_selected_global, salud, fallas, str(mapa.tolist()), ruta_evidencia)
                         
                         contenedor_estado.success(f"✅ Telemetría guardada en la nube | Salud: {salud:.1f}%")
                         st.balloons()
@@ -378,47 +413,99 @@ with tab_analisis:
                         salud_final = ((t_nodes - t_missing) / t_nodes) * 100
                         ruta_final = guardar_evidencia_fisica(Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB)), machine_selected_global)
                         
-                        # Escribir a GSheets
-                        GSheetsCRUD.save_test_result(machine_selected_global, salud_final, t_missing, [], ruta_final)
+                        # Escribir a PostgreSQL
+                        db.save_test_result(machine_selected_global, salud_final, t_missing, str(mapa.tolist()), ruta_final)
                         
                         st.session_state.recortes = {}
-                        st.success("✅ Datos transferidos a Google Sheets.")
+                        st.success("✅ Datos transferidos a Supabase.")
                         time.sleep(1); st.rerun()
 
-# TAB 4: GESTIÓN (ADMIN)
-with tab_gestion:
-    if st.session_state.user_role != "admin":
-        st.warning("⚠️ Nivel de acceso insuficiente. Solo Administradores de Planta.")
-    else:
-        st.subheader("📈 Rendimiento de Red (7 Días)")
-        df_stats = GSheetsCRUD.get_history_range(datetime.now() - timedelta(days=7), datetime.now())
-
-        if not df_stats.empty:
-            df_stats['health_score'] = pd.to_numeric(df_stats['health_score'])
-            promedio_real = df_stats.groupby("machine_name")["health_score"].mean()
-            full_series = pd.Series(0, index=lista_maquinas)
-            grafica_final = promedio_real.combine_first(full_series).sort_index()
-            st.bar_chart(grafica_final, color="#3b82f6")
-        else:
-            st.info("No hay telemetría reciente para graficar.")
-
-        st.divider()
-        st.subheader("📄 Exportación de Datos en Lote")
-        c_r1, c_r2 = st.columns(2)
-        f_i = c_r1.date_input("Fecha Inicio", value=datetime.now()-timedelta(days=7))
-        f_f = c_r2.date_input("Fecha Fin")
+# TAB 4: GESTIÓN (ADMINISTRATIVA Y REPORTES)
+# --- SECCIÓN: USUARIOS (DENTRO DEL TAB DE GESTIÓN) ---
+with tab_admin_users:
+    # Mostramos siempre el directorio para tener visibilidad rápida
+    st.subheader("📋 Directorio de Usuarios Activos")
+    df_users = db.safe_read("usuarios")
+    
+    if not df_users.empty:
+        # Tabla limpia de usuarios actuales
+        st.dataframe(df_users[['usuario', 'rol']], use_container_width=True, hide_index=True)
         
-        if st.button("📊 Extraer Archivos de Sheets", use_container_width=True):
-            datos = GSheetsCRUD.get_history_range(f_i, f_f)
-            if not datos.empty:
-                st.session_state.archivo_csv_listo = datos.to_csv(index=False).encode('utf-8')
-                st.session_state.mostrar_descargas = True
-                st.success("✅ Paquete de datos listo.")
-            else:
-                st.warning("Sin registros en el intervalo seleccionado.")
+        st.divider()
+        
+        # --- COLUMNAS PARA HIDE/SHOW (EXPANDERS) ---
+        col_new, col_del = st.columns(2)
+        
+        with col_new:
+            # EXPANDER PARA AGREGAR
+            with st.expander("➕ Registrar Nuevo Usuario", expanded=False):
+                st.markdown("### Datos de Acceso")
+                nu_user = st.text_input("ID de Usuario (Ej: op_01)", key="new_u_input")
+                nu_pass = st.text_input("Contraseña / PIN", type="password", key="new_p_input")
+                nu_rol = st.selectbox("Nivel de Permisos", ["operador", "admin"], key="new_r_input")
+                
+                if st.button("🚀 Confirmar Registro", use_container_width=True):
+                    if nu_user and nu_pass:
+                        hashed_pass = hash_pw(nu_pass)
+                        q_insert = "INSERT INTO usuarios (usuario, contrasena, rol) VALUES (:u, :h, :r)"
+                        if db.execute_query(q_insert, {"u": nu_user.lower(), "h": hashed_pass, "r": nu_rol}):
+                            st.success(f"✅ '{nu_user}' añadido.")
+                            time.sleep(1)
+                            st.rerun()
+                    else:
+                        st.error("⚠️ Completa todos los campos.")
 
-        if st.session_state.get("mostrar_descargas") and hasattr(st.session_state, 'archivo_csv_listo'):
-            st.download_button("📉 DESCARGAR MATRIZ CSV", st.session_state.archivo_csv_listo, "Telemetria_Planta.csv", "text/csv", use_container_width=True)
+        with col_del:
+            # EXPANDER PARA ELIMINAR
+            with st.expander("🗑️ Dar de Baja Usuario", expanded=False):
+                st.markdown("### Zona de Peligro")
+                user_list = df_users['usuario'].tolist()
+                user_to_delete = st.selectbox("Seleccione cuenta a borrar:", user_list, key="del_u_select")
+                
+                st.warning(f"Se eliminará permanentemente a: {user_to_delete}")
+                if st.button("❌ Ejecutar Baja", type="primary", use_container_width=True):
+                    if user_to_delete == st.session_state.username:
+                        st.error("🚫 No puedes eliminar tu propia sesión activa.")
+                    else:
+                        q_delete = "DELETE FROM usuarios WHERE usuario = :u"
+                        if db.execute_query(q_delete, {"u": user_to_delete}):
+                            st.success(f"✅ Usuario '{user_to_delete}' removido.")
+                            time.sleep(1)
+                            st.rerun()
+    else:
+        st.error("❌ Error al cargar la tabla de usuarios en Supabase.")
+
+        # --- SECCIÓN: REPORTES ---
+        with tab_admin_reports:
+            st.subheader("📈 Rendimiento de Red (7 Días)")
+            df_stats = db.get_history_range(datetime.now() - timedelta(days=7), datetime.now())
+
+            if not df_stats.empty:
+                df_stats['health_score'] = pd.to_numeric(df_stats['health_score'])
+                promedio_real = df_stats.groupby("machine_name")["health_score"].mean()
+                full_series = pd.Series(0, index=lista_maquinas)
+                grafica_final = promedio_real.combine_first(full_series).sort_index()
+                st.bar_chart(grafica_final, color="#3b82f6")
+            else:
+                st.info("No hay telemetría reciente para graficar.")
+
+            st.divider()
+            st.subheader("📄 Exportación de Datos en Lote")
+            c_r1, c_r2 = st.columns(2)
+            f_i = c_r1.date_input("Fecha Inicio", value=datetime.now()-timedelta(days=7))
+            f_f = c_r2.date_input("Fecha Fin")
+            
+            if st.button("📊 Extraer Archivos CSV", use_container_width=True):
+                datos = db.get_history_range(f_i, f_f)
+                if not datos.empty:
+                    st.session_state.archivo_csv_listo = datos.to_csv(index=False).encode('utf-8')
+                    st.session_state.mostrar_descargas = True
+                    st.success("✅ Paquete de datos listo.")
+                else:
+                    st.warning("Sin registros en el intervalo seleccionado.")
+
+            if st.session_state.get("mostrar_descargas") and hasattr(st.session_state, 'archivo_csv_listo'):
+                st.download_button("📉 DESCARGAR MATRIZ CSV", st.session_state.archivo_csv_listo, "Telemetria_Planta.csv", "text/csv", use_container_width=True)
 
 # =========================================================
 # MOTOR DE SINCRONIZACIÓN AUTOMÁTICA
