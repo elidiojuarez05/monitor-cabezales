@@ -186,19 +186,23 @@ if not st.session_state.get('authenticated', False):
                 res_usuarios = db.safe_read("usuarios")
                 
                 if not res_usuarios.empty:
-                    # 1. Normalizamos nombres de columnas a minúsculas
+                    # 1. Normalizamos columnas a minúsculas para evitar errores de nombre
                     res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
                     
-                    # 2. Limpiamos la entrada del usuario
+                    # 2. Limpieza extrema del usuario ingresado
                     u_clean = str(u_ingreso).strip().lower()
                     
-                    # 3. Buscamos el registro del usuario
+                    # 3. Buscamos al usuario en la tabla
                     match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
                     
                     if not match.empty:
-                        # --- EL CAMBIO CRÍTICO AQUÍ ---
-                        # Limpiamos AMBAS contraseñas: la de la BD y la que escribiste
-                        stored_pass = str(match.iloc[0]['contrasena']).strip()
+                        # --- EL CAMBIO CLAVE ESTÁ AQUÍ ---
+                        # Extraemos el valor de la BD y lo limpiamos de TODO
+                        # Usamos .iloc[0] para obtener la primera coincidencia
+                        raw_db_pass = match.iloc[0]['contrasena']
+                        
+                        # Forzamos a que sea string, quitamos espacios y convertimos a string puro
+                        stored_pass = str(raw_db_pass).strip()
                         input_pass = str(p_ingreso).strip()
                         
                         if input_pass == stored_pass:
@@ -209,14 +213,13 @@ if not st.session_state.get('authenticated', False):
                             time.sleep(1)
                             st.rerun()
                         else:
-                            # Esto te ayudará a ver si hay caracteres invisibles
-                            st.error(f"❌ Contraseña incorrecta.")
-                            # Opcional: Descomenta la línea de abajo solo para probar
-                            # st.write(f"DEBUG: Escrita:'{input_pass}' | BD:'{stored_pass}'")
+                            # Si falla, te mostrará qué está comparando (solo para ti, luego lo borras)
+                            st.error("❌ Contraseña incorrecta.")
+                            # st.write(f"DEBUG: Ingresaste: '{input_pass}' | En BD hay: '{stored_pass}'")
                     else:
-                        st.error("❌ El usuario no existe.")
+                        st.error(f"❌ El usuario '{u_clean}' no existe.")
                 else:
-                    st.error("❌ Error de conexión con la base de datos.")
+                    st.error("❌ No hay conexión con la base de datos.")
         
     # ¡ESTA LÍNEA ES LA MÁS IMPORTANTE PARA QUE NO TRUENE EL CÓDIGO!
     st.stop() 
