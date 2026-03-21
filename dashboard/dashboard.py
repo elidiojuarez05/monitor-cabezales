@@ -186,19 +186,21 @@ if not st.session_state.get('authenticated', False):
                 res_usuarios = db.safe_read("usuarios")
                 
                 if not res_usuarios.empty:
+                    # Normalizar columnas
                     res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
                     u_clean = str(u_ingreso).strip().lower()
+                    
                     match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
                     
                     if not match.empty:
-                        # --- EL CAMBIO PARA SEGURIDAD (HASH) ---
-                        # 1. Obtenemos la contraseña encriptada de la base de datos
-                        stored_hash = str(match.iloc[0]['contrasena']).strip()
+                        # 1. Obtener el hash de la base de datos y limpiarlo de cualquier espacio
+                        stored_hash = str(match.iloc[0]['contrasena']).strip().lower()
                         
-                        # 2. Convertimos lo que tú escribiste (admin123) a SHA-256
-                        input_hash = hashlib.sha256(p_ingreso.encode()).hexdigest()
+                        # 2. Generar el hash de lo que escribiste, asegurando que no haya espacios
+                        # Usamos .strip() en p_ingreso por si el teclado puso un espacio al final
+                        input_hash = hashlib.sha256(p_ingreso.strip().encode('utf-8')).hexdigest().lower()
                         
-                        # 3. Comparamos las dos firmas digitales
+                        # 3. Comparación
                         if input_hash == stored_hash:
                             st.session_state.authenticated = True
                             st.session_state.username = u_clean
@@ -207,14 +209,12 @@ if not st.session_state.get('authenticated', False):
                             time.sleep(1)
                             st.rerun()
                         else:
-                            st.error("❌ Contraseña incorrecta (Error de Hash).")
+                            st.error("❌ Contraseña incorrecta.")
+                            # SOLO PARA DEPURAR (Borra estas líneas después de entrar):
+                            # st.write(f"Tu Hash: {input_hash}")
+                            # st.write(f"BD Hash: {stored_hash}")
                     else:
                         st.error(f"❌ El usuario '{u_clean}' no existe.")
-                else:
-                    st.error("❌ Error de conexión con la base de datos.")
-        
-    # ¡ESTA LÍNEA ES LA MÁS IMPORTANTE PARA QUE NO TRUENE EL CÓDIGO!
-    st.stop() 
 
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
