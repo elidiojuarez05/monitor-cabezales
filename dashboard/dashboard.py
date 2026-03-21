@@ -194,42 +194,39 @@ if not st.session_state.get('authenticated', False):
                 res_usuarios = db.safe_read("usuarios")
                 
                 if not res_usuarios.empty:
-                    # 1. Normalizamos nombres de columnas (Pasa 'USUARIO' a 'usuario')
+                    # 1. Normalizamos nombres de columnas
                     res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
-                    
-                    # 2. Limpiamos la entrada del operador
                     u_clean = str(u_ingreso).strip().lower()
                     
-                    # 3. BUSQUEDA CORREGIDA (Aquí estaba el error)
-                    # Agregamos .str antes de .lower()
-                    try:
-                        match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
+                    # 2. Buscamos el usuario con la sintaxis CORRECTA de Pandas (.str.lower())
+                    match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
+                    
+                    if not match.empty:
+                        # --- LIMPIEZA PROFUNDA DEL HASH ---
+                        # Extraemos el hash de la BD y quitamos espacios, saltos de línea y lo pasamos a minúsculas
+                        stored_hash = str(match.iloc[0]['contrasena']).strip().replace('\n', '').replace('\r', '').lower()
                         
-                        if not match.empty:
-                            stored_hash = str(match.iloc[0]['contrasena']).strip().lower()
-                            input_hash = hashlib.sha256(p_ingreso.strip().encode('utf-8')).hexdigest().lower()
-                            
-                            if input_hash == stored_hash:
-                                st.session_state.authenticated = True
-                                st.session_state.username = u_clean
-                                st.session_state.user_role = str(match.iloc[0].get('rol', 'operador')).lower()
-                                st.success("✅ Acceso correcto.")
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.error("❌ Contraseña incorrecta.")
+                        # Generamos el hash de tu entrada (admin123)
+                        input_hash = hashlib.sha256(p_ingreso.strip().encode('utf-8')).hexdigest().lower()
+                        
+                        if input_hash == stored_hash:
+                            st.session_state.authenticated = True
+                            st.session_state.username = u_clean
+                            st.session_state.user_role = str(match.iloc[0].get('rol', 'operador')).strip().lower()
+                            st.success("✅ Acceso correcto.")
+                            time.sleep(1)
+                            st.rerun()
                         else:
-                            st.error(f"❌ El usuario '{u_clean}' no existe.")
-                    except KeyError:
-                        st.error("❌ Error interno: No se encuentra la columna 'usuario' en la tabla.")
+                            st.error("❌ Contraseña incorrecta.")
+                            # --- SOLO PARA PRUEBAS (Borra esto después) ---
+                            st.write(f"DEBUG - Generado: `{input_hash}`")
+                            st.write(f"DEBUG - En BD: `{stored_hash}`")
+                    else:
+                        st.error(f"❌ El usuario '{u_clean}' no existe.")
                 else:
-                    st.error("❌ Error de conexión con la base de datos.")
-            else:
-                st.warning("⚠️ Completa ambos campos.")
+                    st.error("❌ No hay conexión con la base de datos.")
         
-        # ESTO EVITA QUE EL LOGIN SE VEA "DENTRO" DEL DASHBOARD
         st.stop()
-
 
 # ... aquí sigue el resto de tu código del dashboard ...
 # =========================================================
