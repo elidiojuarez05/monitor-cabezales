@@ -57,7 +57,6 @@ class PostgresDB:
             st.error(f"Error SQL: {e}")
             return False
 
-    # --- REEMPLAZO TRANSPARENTE DE GSheetsCRUD ---
     def get_test_by_date(self, m_name, fecha_consulta):
         df = self.safe_read("tests")
         if df.empty or 'timestamp' not in df.columns: return None
@@ -256,7 +255,7 @@ with st.sidebar:
         confirm_pass_val = st.text_input("Confirmar Nueva Contraseña", type="password")
         old_pw = st.text_input("Contraseña Actual", type="password")
         
-        if st.button("💾 Guardar"):
+        if st.button("💾 Guardar Cambios"):
             df_u = db.safe_read("usuarios")
             match = df_u[df_u['usuario'].astype(str).str.strip().str.lower() == st.session_state.username.lower()]
             if not match.empty and old_pw and hash_pw(old_pw) == str(match.iloc[0]['contrasena']).strip().lower():
@@ -421,40 +420,88 @@ with tab_analisis:
                         st.success("✅ Datos transferidos a Supabase.")
                         time.sleep(1); st.rerun()
 
-# TAB 4: GESTIÓN (ADMIN)
+# TAB 4: GESTIÓN (ADMINISTRATIVA Y REPORTES)
 with tab_gestion:
     if st.session_state.user_role != "admin":
         st.warning("⚠️ Nivel de acceso insuficiente. Solo Administradores de Planta.")
     else:
-        st.subheader("📈 Rendimiento de Red (7 Días)")
-        df_stats = db.get_history_range(datetime.now() - timedelta(days=7), datetime.now())
-
-        if not df_stats.empty:
-            df_stats['health_score'] = pd.to_numeric(df_stats['health_score'])
-            promedio_real = df_stats.groupby("machine_name")["health_score"].mean()
-            full_series = pd.Series(0, index=lista_maquinas)
-            grafica_final = promedio_real.combine_first(full_series).sort_index()
-            st.bar_chart(grafica_final, color="#3b82f6")
-        else:
-            st.info("No hay telemetría reciente para graficar.")
-
-        st.divider()
-        st.subheader("📄 Exportación de Datos en Lote")
-        c_r1, c_r2 = st.columns(2)
-        f_i = c_r1.date_input("Fecha Inicio", value=datetime.now()-timedelta(days=7))
-        f_f = c_r2.date_input("Fecha Fin")
+        # Sub-pestañas internas para mantener el diseño limpio
+        tab_admin_users, tab_admin_reports = st.tabs(["👥 Gestión de Usuarios", "📊 Reportes y Telemetría"])
         
-        if st.button("📊 Extraer Archivos CSV", use_container_width=True):
-            datos = db.get_history_range(f_i, f_f)
-            if not datos.empty:
-                st.session_state.archivo_csv_listo = datos.to_csv(index=False).encode('utf-8')
-                st.session_state.mostrar_descargas = True
-                st.success("✅ Paquete de datos listo.")
-            else:
-                st.warning("Sin registros en el intervalo seleccionado.")
+        # --- SECCIÓN: USUARIOS ---
+        with tab_admin_users:
+            col_new_user, col_list_users = st.columns(2)
+            
+            with col_new_user:
+                st.subheader("➕ Añadir Nuevo Usuario")
+                with st.container(border=True):
+                    nu_user = st.text_input("ID de Usuario Nuevo")
+                    nu_pass = st.text_input("Contraseña / PIN Inicial", type="password")
+                    nu_rol = st.selectbox("Rol del Sistema", ["operador", "admin"])
+                    
+                    if st.button("💾 Crear Usuario", use_container_width=True):
+                        if nu_user and nu_pass:
+                            hashed_pass = hash_pw(nu_pass)
+                            q_insert = "INSERT INTO usuarios (usuario, contrasena, rol) VALUES (:u, :h, :r)"
+                            if db.execute_query(q_insert, {"u": nu_user.lower(), "h": hashed_pass, "r": nu_rol}):
+                                st.success(f"✅ Usuario '{nu_user}' creado exitosamente.")
+                                time.sleep(1)
+                                st.rerun()
+                        else:
+                            st.error("⚠️ Faltan datos para crear el usuario.")
+                            
+            with col_list_users:
+                st.subheader("📋 Directorio de Usuarios")
+                df_users = db.safe_read("usuarios")
+                if not df_users.empty:
+                    st.dataframe(df_users[['usuario', 'rol']], use_container_width=True, hide_index=True)
+                    
+                    st.divider()
+                    st.subheader("🗑️ Eliminar Usuario")
+                    user_to_delete = st.selectbox("Seleccione un usuario para dar de baja:", df_users['usuario'].tolist())
+                    if st.button("❌ Eliminar Permanentemente", type="primary"):
+                        if user_to_delete == st.session_state.username:
+                            st.error("⚠️ No puedes eliminar tu propio usuario mientras estás en sesión.")
+                        else:
+                            q_delete = "DELETE FROM usuarios WHERE usuario = :u"
+                            if db.execute_query(q_delete, {"u": user_to_delete}):
+                                st.success(f"Usuario '{user_to_delete}' eliminado del sistema.")
+                                time.sleep(1)
+                                st.rerun()
+                else:
+                    st.info("No hay usuarios registrados o no se pudo conectar a la tabla.")
 
-        if st.session_state.get("mostrar_descargas") and hasattr(st.session_state, 'archivo_csv_listo'):
-            st.download_button("📉 DESCARGAR MATRIZ CSV", st.session_state.archivo_csv_listo, "Telemetria_Planta.csv", "text/csv", use_container_width=True)
+        # --- SECCIÓN: REPORTES ---
+        with tab_admin_reports:
+            st.subheader("📈 Rendimiento de Red (7 Días)")
+            df_stats = db.get_history_range(datetime.now() - timedelta(days=7), datetime.now())
+
+            if not df_stats.empty:
+                df_stats['health_score'] = pd.to_numeric(df_stats['health_score'])
+                promedio_real = df_stats.groupby("machine_name")["health_score"].mean()
+                full_series = pd.Series(0, index=lista_maquinas)
+                grafica_final = promedio_real.combine_first(full_series).sort_index()
+                st.bar_chart(grafica_final, color="#3b82f6")
+            else:
+                st.info("No hay telemetría reciente para graficar.")
+
+            st.divider()
+            st.subheader("📄 Exportación de Datos en Lote")
+            c_r1, c_r2 = st.columns(2)
+            f_i = c_r1.date_input("Fecha Inicio", value=datetime.now()-timedelta(days=7))
+            f_f = c_r2.date_input("Fecha Fin")
+            
+            if st.button("📊 Extraer Archivos CSV", use_container_width=True):
+                datos = db.get_history_range(f_i, f_f)
+                if not datos.empty:
+                    st.session_state.archivo_csv_listo = datos.to_csv(index=False).encode('utf-8')
+                    st.session_state.mostrar_descargas = True
+                    st.success("✅ Paquete de datos listo.")
+                else:
+                    st.warning("Sin registros en el intervalo seleccionado.")
+
+            if st.session_state.get("mostrar_descargas") and hasattr(st.session_state, 'archivo_csv_listo'):
+                st.download_button("📉 DESCARGAR MATRIZ CSV", st.session_state.archivo_csv_listo, "Telemetria_Planta.csv", "text/csv", use_container_width=True)
 
 # =========================================================
 # MOTOR DE SINCRONIZACIÓN AUTOMÁTICA
