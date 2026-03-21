@@ -189,13 +189,18 @@ if not st.session_state.get('authenticated', False):
                     res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
                     if 'usuario' in res_usuarios.columns:
                         u_clean = u_ingreso.strip().lower()
-                        # Fíjate que ahora dice .str.lower() al final
+                        # Comparamos todo en minúsculas y sin espacios
+                        u_clean = u_ingreso.strip().lower()
                         match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().str.lower() == u_clean]
-                        
+                        st.write(f"DEBUG: Buscando usuario -> '{u_clean}'")
+                        st.write("DEBUG: Usuarios en BD:", res_usuarios['usuario'].tolist())
+                        st.write("DEBUG: Password ingresada:", p_ingreso)
                         if not match.empty:
-                            stored_pass = str(match.iloc[0]['contrasena'])
-                            if p_ingreso == stored_pass:
+                            # Forzamos a que ambos sean STRING para comparar "peras con peras"
+                            stored_pass = str(match.iloc[0]['contrasena']).strip()
+                            if str(p_ingreso).strip() == stored_pass:
                                 st.session_state.authenticated = True
+                                # ... resto del código
                                 st.session_state.username = u_clean
                                 st.session_state.user_role = str(match.iloc[0].get('rol', 'operador'))
                                 st.success("✅ Acceso concedido.")
