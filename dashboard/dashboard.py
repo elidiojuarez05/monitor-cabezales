@@ -183,42 +183,46 @@ if not st.session_state.authenticated:
     st.markdown("### 🔐 Acceso al Sistema")
     st.markdown("---")
     
-    # Creamos el formulario de entrada
     with st.container(border=True):
-        user_input = st.text_input("ID Operador")
-        password_input = st.text_input("Contraseña / PIN", type="password")
+        user_input = st.text_input("ID Operador", key="user_login")
+        password_input = st.text_input("Contraseña / PIN", type="password", key="pass_login")
         btn_login = st.button("🚀 Entrar al Monitor", use_container_width=True)
 
+    # CRÍTICO: Todo lo que usa 'df_usuarios' debe estar dentro de este 'if btn_login'
     if btn_login:
-        # SOLO leemos la base de datos cuando el usuario hace clic
-        df_usuarios = db.safe_read("usuarios")
-        
-        if not df_usuarios.empty:
-            # Limpiamos los nombres de las columnas por si vienen en mayúsculas
-            df_usuarios.columns = [str(c).lower().strip() for c in df_usuarios.columns]
+        if user_input and password_input:
+            df_usuarios = db.safe_read("usuarios")
             
-            # Buscamos al usuario (A prueba de errores)
-            user_input_clean = user_input.strip().lower()
-            user_match = df_usuarios[df_usuarios['usuario'].astype(str).str.strip().lower() == user_input_clean]
-            
-            if not user_match.empty:
-                # Verificamos contraseña (puedes usar hashes después, aquí usamos texto plano para probar)
-                stored_password = str(user_match.iloc[0]['contrasena'])
-                if password_input == stored_password:
-                    st.session_state.authenticated = True
-                    st.session_state.username = str(user_match.iloc[0]['usuario'])
-                    st.session_state.user_role = str(user_match.iloc[0]['rol'])
-                    st.success("✅ Acceso concedido. Cargando planta...")
-                    time.sleep(1)
-                    st.rerun()
+            if not df_usuarios.empty:
+                # Normalizamos nombres de columnas (evita el AttributeError)
+                df_usuarios.columns = [str(c).lower().strip() for c in df_usuarios.columns]
+                
+                if 'usuario' in df_usuarios.columns:
+                    user_input_clean = user_input.strip().lower()
+                    
+                    # Realizamos la búsqueda solo ahora que tenemos los datos
+                    user_match = df_usuarios[df_usuarios['usuario'].astype(str).str.strip().lower() == user_input_clean]
+                    
+                    if not user_match.empty:
+                        stored_password = str(user_match.iloc[0]['contrasena'])
+                        if password_input == stored_password:
+                            st.session_state.authenticated = True
+                            st.session_state.username = user_input_clean
+                            st.success("✅ Acceso correcto.")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("❌ Contraseña incorrecta.")
+                    else:
+                        st.error("❌ Usuario no encontrado.")
                 else:
-                    st.error("❌ Contraseña incorrecta.")
+                    st.error(f"Error: La columna 'usuario' no existe. Columnas: {df_usuarios.columns.tolist()}")
             else:
-                st.error("❌ El usuario no existe en el sistema.")
+                st.error("❌ No hay conexión con la base de datos o la tabla está vacía.")
         else:
-            st.error("❌ No se pudo conectar con la tabla de usuarios.")
+            st.warning("⚠️ Por favor, completa ambos campos.")
     
-    st.stop() # Detiene la ejecución hasta que el usuario se autentique
+    st.stop() # Esto evita que el resto del dashboard cargue sin permiso
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
 # =========================================================
