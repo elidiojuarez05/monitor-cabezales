@@ -181,46 +181,25 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
 # =========================================================
 # 7. LÓGICA DE AUTENTICACIÓN (LOGIN CORREGIDA)
 # =========================================================
-if not st.session_state.authenticated:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("<h1 style='text-align: center; color: #3b82f6;'>🔐 Acceso al Sistema</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #94a3b8;'>Panel de Control de Inyectores</p>", unsafe_allow_html=True)
-        
-        user_input = st.text_input("ID Operador")
-        pass_input = st.text_input("Contraseña / PIN", type="password")
-        
-        if st.button("Autenticar", type="primary", use_container_width=True):
-            # Usamos la base de datos ya conectada
-            df_usuarios = db.safe_read("usuarios")
-            
-            if not df_usuarios.empty:
-                # Normalizar nombres de columnas
-                df_usuarios.columns = [str(c).strip().lower() for c in df_usuarios.columns]
-                col_pass = 'contraseña' if 'contraseña' in df_usuarios.columns else 'contrasena'
-                
-                # Buscar al usuario
-                user_match = df_usuarios[df_usuarios['usuario'].astype(str).str.strip().lower() == user_input.strip().lower()]
-                
-                if not user_match.empty:
-                    # Validar contraseña con Hash SHA256
-                    hash_input = hashlib.sha256(pass_input.encode()).hexdigest()
-                    db_password = str(user_match.iloc[0][col_pass]).strip()
-                    
-                    if db_password == hash_input:
-                        st.session_state.update({
-                            "authenticated": True, 
-                            "user_role": str(user_match.iloc[0]['rol']), 
-                            "username": str(user_match.iloc[0]['usuario'])
-                        })
-                        st.rerun()
-                    else:
-                        st.error("❌ Contraseña incorrecta.")
-                else:
-                    st.error("❌ El usuario no existe.")
-            else:
-                st.error("❌ Error de conexión: No se pudo leer la tabla de usuarios.")
-    st.stop()
+# --- 1. LEER LOS USUARIOS ---
+df_usuarios = db.safe_read("usuarios")
+
+# --- 2. TRUCO DE SEGURIDAD: Limpiar nombres de columnas ---
+if not df_usuarios.empty:
+    # Esto convierte todos los nombres de columnas a minúsculas ('USUARIO' -> 'usuario')
+    df_usuarios.columns = [str(c).lower().strip() for c in df_usuarios.columns]
+
+# --- 3. VALIDACIÓN DEL LOGIN ---
+if not df_usuarios.empty:
+    # Ahora sí, buscamos al usuario sin miedo al error de 'usuario'
+    user_match = df_usuarios[df_usuarios['usuario'].astype(str).str.strip().lower() == user_input.strip().lower()]
+    
+    if not user_match.empty:
+        # Si lo encuentra, verificamos la contraseña
+        stored_password = str(user_match.iloc[0]['contrasena'])
+        # ... resto de tu lógica de login
+else:
+    st.error("⚠️ La tabla de usuarios está vacía o no se pudo leer.")
 
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
