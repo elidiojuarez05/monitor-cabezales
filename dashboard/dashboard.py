@@ -78,16 +78,19 @@ except ImportError as e:
 
 class PostgresDB:
     def __init__(self):
-        # Esta línea busca automáticamente los secrets que acabas de pegar
-        self.conn = st.connection("postgresql", type="sql")
+        try:
+            # st.connection ya sabe buscar [connections.postgresql]
+            self.conn = st.connection("postgresql", type="sql")
+        except Exception as e:
+            st.error("No se pudo conectar a la base de datos. Revisa los Secrets.")
 
     def safe_read(self, table_name):
-        # ttl=0 es fundamental: obliga a la app a leer la DB cada vez 
-        # para que veas al instante lo que se mande desde el celular.
-        return self.conn.query(f"SELECT * FROM {table_name};", ttl=0)
-
-# Iniciamos la base de datos para todo el programa
-db = PostgresDB()
+        try:
+            # Agregamos ttl=0 para que no guarde basura en memoria
+            return self.conn.query(f'SELECT * FROM "{table_name}";', ttl=0)
+        except Exception as e:
+            st.error(f"Error al leer la tabla {table_name}")
+            return pd.DataFrame()
             
 
 # =========================================================
