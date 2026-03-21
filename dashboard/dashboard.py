@@ -179,27 +179,28 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
 # 7. LÓGICA DE AUTENTICACIÓN (LOGIN)
 # =========================================================
 # --- 1. LEER LOS USUARIOS ---
+# --- 1. LEER LOS USUARIOS DE SUPABASE ---
 df_usuarios = db.safe_read("usuarios")
 
-# --- 2. TRUCO DE SEGURIDAD: Limpiar nombres de columnas ---
+# --- 2. LIMPIEZA DE COLUMNAS (Para evitar el AttributeError) ---
 if not df_usuarios.empty:
-    # Esto convierte 'USUARIO' o ' Usuario' en 'usuario' automáticamente
+    # Esto convierte 'USUARIO', ' Usuario' o 'uSuArIo' en 'usuario'
     df_usuarios.columns = [str(c).lower().strip() for c in df_usuarios.columns]
 
 # --- 3. VALIDACIÓN DEL LOGIN ---
 if not df_usuarios.empty:
-    # Ahora buscamos al usuario con seguridad
+    # Ahora buscamos al usuario con seguridad absoluta
     user_match = df_usuarios[df_usuarios['usuario'].astype(str).str.strip().lower() == user_input.strip().lower()]
     
     if not user_match.empty:
-        # Si lo encuentra, extraemos la contraseña y el rol
+        # Extraemos los datos de la fila encontrada
         stored_password = str(user_match.iloc[0]['contrasena'])
         user_role = str(user_match.iloc[0]['rol'])
         
-        # Aquí sigue tu lógica de: if password_input == stored_password:
+        # Aquí sigue tu validación de contraseña normal:
+        # if password_input == stored_password: ...
 else:
-    st.error("⚠️ La tabla de usuarios está vacía. Verifica en el Table Editor de Supabase.")
-
+    st.error("⚠️ La tabla de usuarios está vacía. Revisa el 'Table Editor' en Supabase.")
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
 # =========================================================
