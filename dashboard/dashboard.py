@@ -143,27 +143,36 @@ if run_camera:
 # 8. TABS PRINCIPALES
 # ========================================================
 
-# --- TABS PRINCIPALES ---
-st.divider()
-es_hoy = (fecha_consulta == datetime.now().date())
-st.subheader(f"📡 Monitor Global ({fecha_consulta.strftime('%d/%m/%Y')})" if es_hoy else f"🗃️ Registro de Planta ({fecha_consulta.strftime('%d/%m/%Y')})")
-
-tab_carrusel, tab_planta, tab_analisis, tab_gestion = st.tabs(["🔄 Auto-Monitoreo", "🏭 Mapa de Planta", "✂️ Ingesta Manual", "⚙️ Hub Administrativo"])
+# =========================================================
+# 9. TABS PRINCIPALES - CORREGIDOS
+# =========================================================
+tab_car, tab_planta, tab_analisis, tab_gestion = st.tabs(["🔄 Auto-Monitor", "🏭 Planta", "✂️ Ingesta", "⚙️ Hub Admin"])
 
 lista_maquinas = list(MACHINE_CONFIGS.keys())
 
-# TAB 1 & 2: VISTAS DE PLANTA
-with tab_carrusel:
-    idx = st.session_state.indice_carrusel
-    cols_car = st.columns(2)
-    for i, m_name in enumerate(lista_maquinas[idx : idx + 2]):
-        with cols_car[i]: render_machine_card(m_name, fecha_consulta, suffix="car")
+with tab_car:
+    if lista_maquinas:
+        idx = st.session_state.indice_carrusel
+        # Seleccionamos las 2 máquinas actuales del carrusel
+        maquinas_visibles = lista_maquinas[idx : idx + 2]
+        
+        # DEFINIMOS cols_car para evitar el NameError
+        cols_car = st.columns(2)
+        
+        for i, m_name in enumerate(maquinas_visibles):
+            with cols_car[i]:
+                # Usamos m_name que es la variable del loop
+                render_machine_card(m_name, fecha_consulta, suffix="car")
+    else:
+        st.warning("No hay máquinas configuradas en config.py")
 
 with tab_planta:
+    # Renderizado de todas las máquinas en una cuadrícula
     for i in range(0, len(lista_maquinas), 2):
-        cols = st.columns(2)
+        cols_planta = st.columns(2)
         for j, m_name in enumerate(lista_maquinas[i : i + 2]):
-            with cols[j]: render_machine_card(m_name, fecha_consulta, suffix="gral")
+            with cols_planta[j]:
+                render_machine_card(m_name, fecha_consulta, suffix="planta")
 
 # TAB 3: ANÁLISIS MANUAL
 # --- TAB ANÁLISIS MANUAL (CORREGIDO ROTACIÓN) ---
