@@ -138,10 +138,18 @@ init_admin_user()
 def check_password(username, password):
     res = query_db("SELECT * FROM usuarios WHERE username = :u", {"u": username})
     if not res.empty:
+        # Normalizar columnas a minúsculas
+        res.columns = [c.lower() for c in res.columns]
+        
         db_pass = str(res.iloc[0]['password']).strip()
         input_hash = hashlib.sha256(password.encode()).hexdigest()
+        
         if db_pass == input_hash or db_pass == password:
-            return MockObj(id=res.iloc[0]['id'], username=res.iloc[0]['username'], role=res.iloc[0]['role'])
+            return MockObj(
+                id=res.iloc[0]['id'], 
+                username=res.iloc[0]['username'], 
+                role=res.iloc[0]['role']
+            )
     return None
 
 def guardar_evidencia_fisica(imagen_pil, nombre_maquina):
@@ -519,14 +527,32 @@ with tab_gestion:
         
         with col_u2:
             with st.expander("🗑️ Eliminar Acceso"):
-                users = query_db("SELECT username FROM usuarios")
-                lista_nombres = [u for u in users['username'].tolist() if u != st.session_state.username]
-                u_eliminar = st.selectbox("Seleccionar usuario", lista_nombres)
-                confirm = st.checkbox("Confirmo eliminación permanente")
-                if st.button("Eliminar Usuario"):
-                    if confirm and commit_db("DELETE FROM usuarios WHERE username=:u", {"u": u_eliminar}):
-                        st.success(f"Usuario {u_eliminar} borrado")
-                        time.sleep(1); st.rerun()
+                # Consultamos explícitamente la columna
+                users_df = query_db("SELECT username FROM usuarios")
+                
+                if not users_df.empty:
+                    # Forzamos a que los nombres de columnas de Pandas estén en minúsculas 
+                    # para evitar el KeyError independientemente de cómo responda Postgres
+                    users_df.columns = [c.lower() for c in users_df.columns]
+                    
+                    # Ahora usamos 'username' con total seguridad
+                    lista_nombres = [u for u in users_df['username'].tolist() if u != st.session_state.username]
+                    
+                    if lista_nombres:
+                        u_eliminar = st.selectbox("Seleccionar usuario para borrar", lista_nombres)
+                        confirm = st.checkbox("Confirmo eliminación permanente", key="conf_del")
+                        if st.button("Eliminar Usuario", type="secondary"):
+                            if confirm:
+                                if commit_db("DELETE FROM usuarios WHERE username=:u", {"u": u_eliminar}):
+                                    st.success(f"Usuario {u_eliminar} borrado")
+                                    time.sleep(1)
+                                    st.rerun()
+                            else:
+                                st.warning("Debes marcar la casilla de confirmación")
+                    else:
+                        st.info("No hay otros usuarios para eliminar.")
+                else:
+                    st.info("No se encontraron usuarios en la base de datos.")
 
         st.divider()
 
