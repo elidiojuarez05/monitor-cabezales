@@ -8,85 +8,78 @@ import sys
 import time
 from PIL import Image
 from datetime import datetime, timedelta
+from sqlalchemy import text
 
 # =========================================================
-# 1. CONFIGURACIÓN DE RUTAS (BACKEND EN SUB-CARPETA)
+# 1. CONFIGURACIÓN DE PÁGINA Y RUTAS
 # =========================================================
-# Obtener la ruta absoluta de la carpeta donde está dashboard.py
+st.set_page_config(page_title="Print Head Monitor", layout="wide", initial_sidebar_state="expanded")
+
+# Ajuste de rutas para importar backend
 current_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Subir un nivel (si dashboard.py está en una carpeta propia) 
-# y luego entrar a 'backend'
 project_root = os.path.dirname(current_dir)
 backend_path = os.path.join(project_root, "backend")
-
-# Si 'backend' está al mismo nivel que dashboard.py, usa esta:
-# backend_path = os.path.join(current_dir, "backend")
 
 if backend_path not in sys.path:
     sys.path.insert(0, backend_path)
 
-# Ahora ya puedes importar sin el prefijo 'backend.'
 try:
     import image_processor
     from config import MACHINE_CONFIGS
 except ImportError as e:
     st.error(f"Error al importar módulos del backend: {e}")
-    st.info(f"Ruta intentada: {backend_path}")
     st.stop()
 
 # =========================================================
-# 2. CONEXIÓN DIRECTA A POSTGRESQL
-# ========================================================
-# Conexión nativa
+# 2. CONEXIÓN A BASE DE DATOS (POSTGRESQL)
+# =========================================================
 conn = st.connection("postgresql", type="sql")
 
 def ejecutar_query(query, params=None):
-    """Ejecuta una consulta SELECT de forma segura"""
+    """Ejecuta consultas SELECT"""
     try:
-        # Usar text() es obligatorio en versiones recientes para mapear :u correctamente
         return conn.query(text(query), params=params, ttl=0)
     except Exception as e:
-        st.error(f"Error de consulta: {e}")
+        st.error(f"Error en base de datos: {e}")
         return pd.DataFrame()
 
-# --- Ejemplo de uso en el Login ---
-if st.button("Entrar"):
-    res = ejecutar_query('SELECT * FROM usuarios WHERE username = :u', params={"u": user_input})
-    if not res.empty:
-
 def ejecutar_comando(query, params=None):
-    """Ejecuta un comando que modifica datos (INSERT, UPDATE, DELETE)"""
-    with conn.session as s:
-        s.execute(query, params)
-        s.commit()
+    """Ejecuta INSERT, UPDATE, DELETE"""
+    try:
+        with conn.session as s:
+            s.execute(text(query), params)
+            s.commit()
+        return True
+    except Exception as e:
+        st.error(f"Error al guardar: {e}")
+        return False
 
 # =========================================================
-# 3. INTERFAZ DE LOGIN (SQL DIRECTO)
+# 3. LÓGICA DE AUTENTICACIÓN
 # =========================================================
-st.set_page_config(page_title="Print Head Monitor", layout="wide")
-
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-    st.title("🔐 Acceso al Sistema")
-    with st.form("login_form"):
-        user_input = st.text_input("Usuario")
-        pass_input = st.text_input("Contraseña", type="password")
-        if st.form_submit_button("Entrar"):
-            # Consulta directa a la tabla usuarios
-            res = ejecutar_query('SELECT * FROM usuarios WHERE username = :u', params={"u": user_input})
+    st.markdown("## 🔐 Acceso al Sistema")
+    with st.container(border=True):
+        u_ingreso = st.text_input("Usuario")
+        p_ingreso = st.text_input("Contraseña", type="password")
+        if st.button("🚀 Entrar al Monitor", use_container_width=True):
+            # Buscamos al usuario en Postgres
+            res = ejecutar_query('SELECT * FROM usuarios WHERE username = :u', {"u": u_ingreso})
             
             if not res.empty:
-                db_pass = res.iloc[0]['password']
-                # Verificamos si es hash o texto plano
-                input_hash = hashlib.sha256(pass_input.encode()).hexdigest()
+                db_pass = str(res.iloc[0]['password'])
+                input_hash = hashlib.sha256(p_ingreso.encode()).hexdigest()
                 
-                if pass_input == db_pass or input_hash == db_pass:
+                # Verificación (soporta texto plano para pruebas o hash SHA256)
+                if p_ingreso == db_pass or input_hash == db_pass:
                     st.session_state.authenticated = True
-                    st.session_state.username = user_input
+                    st.session_state.username = u_ingreso
                     st.session_state.role = res.iloc[0]['role']
+                    st.success("Acceso concedido")
+                    time.sleep(1)
                     st.rerun()
                 else:
                     st.error("Contraseña incorrecta")
@@ -95,93 +88,108 @@ if not st.session_state.authenticated:
     st.stop()
 
 # =========================================================
-# 4. DASHBOARD PRINCIPAL
+# 4. INTERFAZ PRINCIPAL (DASHBOARD)
 # =========================================================
-st.title(f"🖨️ Monitor de Planta - {st.session_state.username}")
 
-# Tabs para organizar la vista
-tab1, tab2, tab3 = st.tabs(["📊 Estado Actual", "📸 Captura de Test", "⚙️ Administración"])
+# Sidebar con controles
+with st.sidebar:
+    st.title(f"👤 {st.session_state.username}")
+    st.caption(f"Rol: {st.session_state.role.upper()}")
+    st.divider()
+    
+    sensibilidad = st.slider("Sensibilidad de Escaneo", 0.01, 0.20, 0.05)
+    
+    if st.button("🚪 Cerrar Sesión", type="primary", use_container_width=True):
+        st.session_state.authenticated = False
+        st.rerun()
 
+# Tabs de navegación
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Estado Global", "📸 Captura Test", "📈 Historial", "⚙️ Admin"])
+
+# --- TAB 1: ESTADO ACTUAL ---
 with tab1:
-    st.subheader("Estado de las Máquinas en Tiempo Real")
-    # Traemos los últimos resultados de cada máquina
-    query_status = """
-        SELECT DISTINCT ON (machine_name) 
-        machine_name, health_score, missing_nodes, timestamp 
-        FROM test_results 
-        ORDER BY machine_name, timestamp DESC
+    st.subheader("Estado de Inyectores por Máquina")
+    # Traer el último test de cada máquina
+    query_last = """
+        SELECT DISTINCT ON (machine_name) machine_name, health_score, missing_nodes, timestamp 
+        FROM test_results ORDER BY machine_name, timestamp DESC
     """
-    df_actual = ejecutar_query(query_status)
+    df_actual = ejecutar_query(query_last)
     
     cols = st.columns(3)
     for i, (m_name, config) in enumerate(MACHINE_CONFIGS.items()):
         with cols[i % 3]:
-            # Buscamos si hay datos en el DF para esta máquina
             info_m = df_actual[df_actual['machine_name'] == m_name]
-            
             with st.container(border=True):
                 if not info_m.empty:
                     salud = info_m.iloc[0]['health_score']
                     nodos = info_m.iloc[0]['missing_nodes']
-                    st.metric(label=m_name, value=f"{salud:.1f}%", delta=f"-{nodos} nodos")
-                    st.caption(f"Último update: {info_m.iloc[0]['timestamp']}")
+                    st.metric(m_name, f"{salud:.1f}%", f"-{nodos} inyectores", delta_color="inverse")
+                    st.caption(f"Actualizado: {info_m.iloc[0]['timestamp'].strftime('%H:%M - %d/%m')}")
                 else:
-                    st.metric(label=m_name, value="N/A", delta="Sin datos")
+                    st.metric(m_name, "N/A", "Sin datos")
 
+# --- TAB 2: CAPTURA ---
 with tab2:
-    st.subheader("Nueva Inspección")
-    maquina = st.selectbox("Seleccionar Máquina", list(MACHINE_CONFIGS.keys()))
-    foto = st.camera_input("Capturar Test")
+    st.subheader("Nueva Inspección de Cabezal")
+    maquina_selec = st.selectbox("Seleccionar Máquina", list(MACHINE_CONFIGS.keys()))
+    foto = st.camera_input("Tomar foto del test")
     
     if foto:
-        # Procesamiento con tu módulo de backend
         temp_file = "temp_capture.jpg"
         with open(temp_file, "wb") as f:
             f.write(foto.getbuffer())
         
-        config_m = MACHINE_CONFIGS[maquina]
-        mapa, img_res, msg = image_processor.process_test_image_v2(temp_file, config_m)
-        
-        if mapa is not None:
-            salud = (np.sum(mapa) / mapa.size) * 100
-            fallas = int(np.count_nonzero(mapa == 0))
+        with st.spinner("Procesando imagen..."):
+            conf = MACHINE_CONFIGS[maquina_selec]
+            mapa, img_res, msg = image_processor.process_test_image_v2(temp_file, conf, sensibilidad)
             
-            # GUARDAR EN POSTGRESQL DIRECTO
-            insert_query = """
-                INSERT INTO test_results (machine_name, health_score, missing_nodes, timestamp)
-                VALUES (:m, :s, :f, :t)
-            """
-            ejecutar_comando(insert_query, {
-                "m": maquina, 
-                "s": salud, 
-                "f": fallas, 
-                "t": datetime.now()
-            })
-            
-            st.success(f"Captura guardada. Salud: {salud:.2f}%")
-            time.sleep(2)
-            st.rerun()
+            if mapa is not None:
+                salud = (np.sum(mapa) / mapa.size) * 100
+                fallas = int(np.count_nonzero(mapa == 0))
+                
+                # Guardar resultado en Postgres
+                query_ins = """
+                    INSERT INTO test_results (machine_name, health_score, missing_nodes, timestamp)
+                    VALUES (:m, :s, :f, :t)
+                """
+                exito = ejecutar_comando(query_ins, {
+                    "m": maquina_selec, "s": salud, "f": fallas, "t": datetime.now()
+                })
+                
+                if exito:
+                    st.image(cv2.cvtColor(img_res, cv2.COLOR_BGR2RGB), caption="Resultado del Análisis")
+                    st.success(f"Guardado. Salud: {salud:.2f}% | Fallas: {fallas}")
+                    st.balloons()
+            else:
+                st.error("No se pudo procesar la imagen. Verifique la iluminación.")
 
+# --- TAB 3: HISTORIAL ---
 with tab3:
+    st.subheader("Tendencia de Salud (Últimos 30 días)")
+    df_hist = ejecutar_query("SELECT timestamp, machine_name, health_score FROM test_results ORDER BY timestamp ASC")
+    if not df_hist.empty:
+        # Gráfico de líneas dinámico
+        df_pivot = df_hist.pivot(index='timestamp', columns='machine_name', values='health_score')
+        st.line_chart(df_pivot)
+    else:
+        st.info("Aún no hay datos históricos para mostrar.")
+
+# --- TAB 4: ADMIN ---
+with tab4:
     if st.session_state.role == 'admin':
         st.subheader("Gestión de Usuarios")
-        usuarios_df = ejecutar_query("SELECT id, username, role FROM usuarios")
-        st.dataframe(usuarios_df, use_container_width=True)
+        df_users = ejecutar_query("SELECT id, username, role FROM usuarios")
+        st.dataframe(df_users, use_container_width=True)
         
-        with st.expander("Añadir Nuevo Operador"):
-            new_u = st.text_input("Nuevo Usuario")
-            new_p = st.text_input("Nueva Contraseña", type="password")
-            if st.button("Registrar"):
-                h = hashlib.sha256(new_p.encode()).hexdigest()
+        with st.expander("➕ Registrar Nuevo Operador"):
+            nuevo_u = st.text_input("ID Usuario")
+            nuevo_p = st.text_input("Password", type="password")
+            if st.button("Crear Usuario"):
+                h = hashlib.sha256(nuevo_p.encode()).hexdigest()
                 ejecutar_comando("INSERT INTO usuarios (username, password, role) VALUES (:u, :p, :r)",
-                                 {"u": new_u, "p": h, "r": "operator"})
-                st.success("Usuario creado")
+                                 {"u": nuevo_u, "p": h, "r": "operator"})
+                st.success("Usuario registrado correctamente.")
                 st.rerun()
     else:
-        st.warning("No tienes permisos de administrador.")
-
-# Botón para refrescar manualmente
-if st.sidebar.button("🔄 Sincronizar Datos"):
-    st.rerun()
-
-st.sidebar.button("Log out", on_click=lambda: st.session_state.update({"authenticated": False}))
+        st.warning("Acceso restringido. Solo administradores pueden ver esta pestaña.")
