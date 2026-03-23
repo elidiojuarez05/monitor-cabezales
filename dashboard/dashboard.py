@@ -37,18 +37,27 @@ except ImportError as e:
 
 # =========================================================
 # 2. CONEXIÓN DIRECTA A POSTGRESQL
-# =========================================================
-# Streamlit maneja el pool de conexiones automáticamente con st.connection
+# ========================================================
+
+# Conexión
 conn = st.connection("postgresql", type="sql")
 
 def ejecutar_query(query, params=None):
     """Ejecuta una consulta SELECT de forma segura"""
     try:
-        # Usamos text() para asegurar que SQLAlchemy procese los parámetros correctamente
+        # Usamos text() para que SQLAlchemy no confunda los dos puntos (:) 
+        # con sintaxis interna de la base de datos
         return conn.query(text(query), params=params, ttl=0)
     except Exception as e:
-        st.error(f"Error en la consulta SQL: {e}")
+        st.error(f"Error en la consulta: {e}")
         return pd.DataFrame()
+
+# --- Bloque de Login ---
+user_input = st.text_input("Usuario")
+# ... resto del código ...
+if st.button("Entrar"):
+    # IMPORTANTE: Asegúrate de que los nombres coincidan con la tabla creada arriba
+    res = ejecutar_query('SELECT * FROM usuarios WHERE username = :u', params={"u": user_input})
 
 # Al llamar a la función en el login:
 res = ejecutar_query('SELECT * FROM usuarios WHERE username = :u', params={"u": user_input})
