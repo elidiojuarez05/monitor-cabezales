@@ -42,24 +42,27 @@ st.set_page_config(page_title="Print Head Monitor Pro", layout="wide", initial_s
 # Conexión nativa de Streamlit a Postgres
 conn = st.connection("postgresql", type="sql")
 
-def query_db(sql, params=None):
-    """Consulta segura que devuelve DataFrame"""
+def query_db(sql_string, params=None):
+    """Consulta segura pasando el SQL como string puro"""
     try:
-        return conn.query(sql, params=params, ttl=0)
+        # Pasamos el string directamente, Streamlit maneja el text() internamente
+        return conn.query(sql_string, params=params, ttl=0)
     except Exception as e:
         st.error(f"Error SQL: {e}")
         return pd.DataFrame()
 
-def commit_db(sql, params=None):
-    """Ejecuta INSERT/UPDATE/DELETE"""
+def commit_db(sql_string, params=None):
+    """Ejecuta comandos de escritura"""
     try:
         with conn.session as s:
-            s.execute(text(sql), params)
+            # Aquí sí usamos text() porque es el objeto de sesión de SQLAlchemy
+            s.execute(text(sql_string), params)
             s.commit()
         return True
     except Exception as e:
         st.error(f"Error de escritura: {e}")
-        return False
+        return False)
+
 
 # =========================================================
 # 3. ESTADOS DE SESIÓN Y LOGICA DE CARRUSEL
@@ -72,12 +75,20 @@ if 'indice_carrusel' not in st.session_state:
 # =========================================================
 # 4. SISTEMA DE AUTENTICACIÓN (DISEÑO DEL NUEVO DASHBOARD)
 # =========================================================
+# 4. SISTEMA DE AUTENTICACIÓN (CORREGIDO)
+# =========================================================
 if not st.session_state.authenticated:
+    # CORRECCIÓN: El parámetro correcto es unsafe_allow_html
     st.markdown("""
         <style>
-        .login-box { background-color: #f0f2f6; padding: 2rem; border-radius: 10px; border: 1px solid #d1d5db; }
+        .login-box { 
+            background-color: #f0f2f6; 
+            padding: 2rem; 
+            border-radius: 10px; 
+            border: 1px solid #d1d5db; 
+        }
         </style>
-    """, unsafe_allow_dict=True)
+    """, unsafe_allow_html=True) 
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -87,6 +98,7 @@ if not st.session_state.authenticated:
             u = st.text_input("Usuario").strip()
             p = st.text_input("Contraseña", type="password")
             if st.button("INGRESAR AL SISTEMA", use_container_width=True, type="primary"):
+                # Usamos el query_db corregido (ver abajo)
                 res = query_db("SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u)", {"u": u})
                 if not res.empty:
                     db_pass = str(res.iloc[0]['password']).strip()
@@ -97,9 +109,9 @@ if not st.session_state.authenticated:
                         st.session_state.role = res.iloc[0]['role']
                         st.rerun()
                     else:
-                        st.error("Contraseña incorrecta")
+                        st.error("❌ Contraseña incorrecta")
                 else:
-                    st.error("Usuario no registrado")
+                    st.error("❌ Usuario no registrado")
     st.stop()
 
 # =========================================================
