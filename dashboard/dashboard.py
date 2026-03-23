@@ -42,8 +42,16 @@ except ImportError as e:
 conn = st.connection("postgresql", type="sql")
 
 def ejecutar_query(query, params=None):
-    """Ejecuta una consulta que devuelve datos (SELECT)"""
-    return conn.query(query, params=params, ttl=0) # ttl=0 para datos en tiempo real
+    """Ejecuta una consulta SELECT de forma segura"""
+    try:
+        # Usamos text() para asegurar que SQLAlchemy procese los parámetros correctamente
+        return conn.query(text(query), params=params, ttl=0)
+    except Exception as e:
+        st.error(f"Error en la consulta SQL: {e}")
+        return pd.DataFrame()
+
+# Al llamar a la función en el login:
+res = ejecutar_query('SELECT * FROM usuarios WHERE username = :u', params={"u": user_input})
 
 def ejecutar_comando(query, params=None):
     """Ejecuta un comando que modifica datos (INSERT, UPDATE, DELETE)"""
