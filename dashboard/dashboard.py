@@ -12,18 +12,27 @@ from datetime import datetime, timedelta
 # =========================================================
 # 1. CONFIGURACIÓN DE RUTAS (BACKEND EN SUB-CARPETA)
 # =========================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Añadimos la carpeta backend al path para poder importar tus archivos
-backend_path = os.path.join(BASE_DIR, "backend")
+# Obtener la ruta absoluta de la carpeta donde está dashboard.py
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Subir un nivel (si dashboard.py está en una carpeta propia) 
+# y luego entrar a 'backend'
+project_root = os.path.dirname(current_dir)
+backend_path = os.path.join(project_root, "backend")
+
+# Si 'backend' está al mismo nivel que dashboard.py, usa esta:
+# backend_path = os.path.join(current_dir, "backend")
+
 if backend_path not in sys.path:
     sys.path.insert(0, backend_path)
 
+# Ahora ya puedes importar sin el prefijo 'backend.'
 try:
     import image_processor
     from config import MACHINE_CONFIGS
-    # No importamos crud ni models si vamos a usar SQL directo
 except ImportError as e:
-    st.error(f"Error al importar desde la carpeta backend: {e}")
+    st.error(f"Error al importar módulos del backend: {e}")
+    st.info(f"Ruta intentada: {backend_path}")
     st.stop()
 
 # =========================================================
