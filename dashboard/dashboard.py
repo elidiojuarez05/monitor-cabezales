@@ -61,7 +61,7 @@ def commit_db(sql_string, params=None):
         return True
     except Exception as e:
         st.error(f"Error de escritura: {e}")
-        return False)
+        return False
 
 
 # =========================================================
