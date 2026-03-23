@@ -1,10 +1,6 @@
 streamlit
-streamlit-cropper
-numpy
-opencv-python-headless
-pandas
-Pillow
 psycopg2-binary
-fpdf
 sqlalchemy
-
+pandas
+opencv-python-headless
+streamlit-cropper
