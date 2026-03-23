@@ -9,34 +9,11 @@ from streamlit_cropper import st_cropper
 from PIL import Image
 from datetime import datetime, timedelta
 import time
-import base64
-import streamlit as st
-import pandas as pd
-import psycopg2 # Asegúrate de tenerlo en requirements.txt
-
-# --- 1. DEFINICIÓN DE LA BASE DE DATOS (DEBE IR ARRIBA) ---
-class PostgresDB:
-    def __init__(self):
-        # Agregamos un pool_pre_ping para que verifique la conexión antes de fallar
-        self.conn = st.connection("postgresql", type="sql", pool_pre_ping=True)
-
-    def safe_read(self, table_name):
-        try:
-            # Importante: Usar comillas dobles para el nombre de la tabla
-            query = f'SELECT * FROM "{table_name}"'
-            return self.conn.query(query, ttl=0)
-        except Exception as e:
-            st.error(f"Detalle del error: {e}")
-            return pd.DataFrame()
-
-db = PostgresDB()
-# --- 3. RESTO DEL CÓDIGO (LOGIN, DASHBOARD, ETC.) ---
-# Ahora sí puedes usar db.safe_read()
-df_usuarios = db.safe_read("usuarios")
 
 # =========================================================
 # 1. CONFIGURACIÓN DE PÁGINA Y TEMA INDUSTRIAL
 # =========================================================
+# set_page_config DEBE ser el primer comando de Streamlit
 st.set_page_config(page_title="Print Head Monitor", layout="wide", initial_sidebar_state="expanded")
 
 # Inyección de CSS para Tema Industrial Profesional
@@ -92,12 +69,17 @@ for path in [EVIDENCIAS_PATH, REPORTES_PATH]:
 try:
     import image_processor
     from config import MACHINE_CONFIGS
+    import crud
+    import models
 except ImportError as e:
     st.error(f"Error crítico de importación: {e}")
     st.stop()
 
-#base da datods
-            
+# =========================================================
+# 4. CONEXIÓN A BASE DE DATOS POSTGRESQL (VÍA STREAMLIT)
+# =========================================================
+# Configura tus secretos de conexión en .streamlit/secrets.toml bajo [connections.postgresql]
+conn = st.connection("postgresql", type="sql")
 
 # =========================================================
 # 5. INICIALIZACIÓN DE SESSION STATE Y VARIABLES GLOBALES
@@ -125,7 +107,10 @@ def guardar_evidencia_fisica(imagen_pil, nombre_maquina):
     return full_path
 
 def render_machine_card(m_name, fecha_consulta, suffix=""):
-    last_test = GSheetsCRUD.get_test_by_date(m_name, fecha_consulta)
+    with conn.session as db:
+        last_test = crud.get_test_by_date(db, m_name, fecha_consulta)
+        history = crud.get_machine_history_cached(db, m_name, limit=10)
+
     estado_actual = st.session_state.estados_maquinas.get(m_name, "Operativa")
     fecha_ultimo = last_test.timestamp.strftime('%d/%m/%Y %H:%M') if last_test else "Sin registros"
 
@@ -153,7 +138,6 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
             st.metric("Status de Salud", f"{salud:.1f}%", f"-{last_test.missing_nodes} Nodos", delta_color="inverse")
             st.caption(f"Último escaneo: {fecha_ultimo}")
             
-            history = GSheetsCRUD.get_machine_history(m_name, limit=10)
             if not history.empty:
                 st.line_chart(history.set_index('timestamp')['health_score'], height=120, color=estilo["color_b"])
     else:
@@ -173,11 +157,6 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
 # =========================================================
 # 7. LÓGICA DE AUTENTICACIÓN (LOGIN)
 # =========================================================
-
-# =========================================================
-# 7. LÓGICA DE AUTENTICACIÓN (LOGIN)
-# =========================================================
-
 if not st.session_state.get('authenticated', False):
     st.markdown("### 🔐 Acceso al Sistema")
     st.info("Ingresa tus credenciales para conectar con la planta.")
@@ -189,40 +168,28 @@ if not st.session_state.get('authenticated', False):
 
     if btn_entrar:
         if u_ingreso and p_ingreso:
-            # LEER DB SOLO AQUÍ (evita el error al cargar)
-            res_usuarios = db.safe_read("usuarios")
+            u_clean = u_ingreso.strip().lower()
             
-            if not res_usuarios.empty:
-                # Limpiamos nombres de columnas (pasa 'USUARIO' a 'usuario')
-                res_usuarios.columns = [str(c).lower().strip() for c in res_usuarios.columns]
-                
-                # Verificación de seguridad
-                if 'usuario' in res_usuarios.columns:
-                    u_clean = u_ingreso.strip().lower()
-                    # Buscamos el operador
-                    match = res_usuarios[res_usuarios['usuario'].astype(str).str.strip().lower() == u_clean]
-                    
-                    if not match.empty:
-                        stored_pass = str(match.iloc[0]['contrasena'])
-                        if p_ingreso == stored_pass:
-                            st.session_state.authenticated = True
-                            st.session_state.username = u_clean
-                            st.session_state.user_role = str(match.iloc[0]['rol'])
-                            st.success("✅ Acceso concedido.")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.error("❌ Contraseña incorrecta.")
-                    else:
-                        st.error("❌ El usuario no existe.")
+            with conn.session as db:
+                user = crud.get_user_by_username(db, u_clean)
+            
+            if user:
+                # Soporta comparación plana o con hash para retrocompatibilidad
+                if p_ingreso == user.password or hashlib.sha256(p_ingreso.encode()).hexdigest() == user.password:
+                    st.session_state.authenticated = True
+                    st.session_state.username = user.username
+                    st.session_state.user_role = user.role
+                    st.success("✅ Acceso concedido.")
+                    time.sleep(1)
+                    st.rerun()
                 else:
-                    st.error(f"Error de base de datos: No existe la columna 'usuario'. Columnas actuales: {res_usuarios.columns.tolist()}")
+                    st.error("❌ Contraseña incorrecta.")
             else:
-                st.error("❌ No se pudo conectar con la tabla de usuarios en Supabase.")
+                st.error("❌ El usuario no existe.")
         else:
             st.warning("⚠️ Escribe tu usuario y contraseña.")
-    
-    # MUY IMPORTANTE: Detenemos la ejecución aquí si no está logueado
+    st.stop()  # Detiene la ejecución aquí si no está logueado
+
 # =========================================================
 # 8. INTERFAZ PRINCIPAL (POST-LOGIN)
 # =========================================================
@@ -239,7 +206,7 @@ st.markdown(f"""
 # --- SIDEBAR ---
 with st.sidebar:
     st.markdown(f"### 👤 {st.session_state.username}")
-    st.caption(f"🎖️ {st.session_state.user_role.upper()}")
+    st.caption(f"🎖️ {str(st.session_state.user_role).upper()}")
 
     with st.expander("⚙️ Editar Mi Perfil"):
         new_user_val = st.text_input("Nuevo usuario", value=st.session_state.username)
@@ -248,16 +215,22 @@ with st.sidebar:
         old_pw = st.text_input("Contraseña Actual", type="password")
         
         if st.button("💾 Guardar"):
-            user_db = GSheetsCRUD.get_user_by_username(st.session_state.username)
-            if old_pw and user_db and user_db.password == hashlib.sha256(old_pw.encode()).hexdigest():
-                if new_pass_val == confirm_pass_val:
-                    h_new = hashlib.sha256(new_pass_val.encode()).hexdigest() if new_pass_val else user_db.password
-                    if GSheetsCRUD.update_user_credentials(st.session_state.username, new_user_val, h_new):
-                        st.session_state.username = new_user_val
-                        st.success("✅ Perfil actualizado")
-                        time.sleep(1); st.rerun()
-                else: st.error("❌ Contraseñas no coinciden")
-            else: st.error("❌ Credenciales inválidas")
+            with conn.session as db:
+                user_db = crud.get_user_by_username(db, st.session_state.username)
+                
+                # Valida la contraseña antigua
+                if old_pw and user_db and (user_db.password == old_pw or user_db.password == hashlib.sha256(old_pw.encode()).hexdigest()):
+                    if new_pass_val == confirm_pass_val:
+                        h_new = hashlib.sha256(new_pass_val.encode()).hexdigest() if new_pass_val else user_db.password
+                        if crud.update_user_credentials(db, user_db.id, new_user_val, h_new):
+                            st.session_state.username = new_user_val
+                            st.success("✅ Perfil actualizado")
+                            time.sleep(1)
+                            st.rerun()
+                    else: 
+                        st.error("❌ Contraseñas no coinciden")
+                else: 
+                    st.error("❌ Credenciales inválidas")
 
     st.divider()
     st.subheader("🛠️ Parámetros de Escaneo")
@@ -284,7 +257,7 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.rerun()
 
-# --- LÓGICA DE CÁMARA (CORREGIDA) ---
+# --- LÓGICA DE CÁMARA ---
 if run_camera:
     st.info(f"Modo de inspección activo para: **{machine_selected_global}**")
     foto = st.camera_input("Capturar Evidencia de Test")
@@ -328,10 +301,11 @@ if run_camera:
                         
                         ruta_evidencia = guardar_evidencia_fisica(img_pil, machine_selected_global)
                         
-                        # Guardar en GSheets
-                        GSheetsCRUD.save_test_result(machine_selected_global, salud, fallas, mapa.tolist(), ruta_evidencia)
+                        # Escribir a PostgreSQL a través de CRUD
+                        with conn.session as db:
+                            crud.save_test_result(db, machine_selected_global, salud, fallas, mapa.tolist(), ruta_evidencia)
                         
-                        contenedor_estado.success(f"✅ Telemetría guardada en la nube | Salud: {salud:.1f}%")
+                        contenedor_estado.success(f"✅ Telemetría guardada en DB | Salud: {salud:.1f}%")
                         st.balloons()
                         
                         st.session_state.bloquear_refresco = False
@@ -386,7 +360,8 @@ with tab_analisis:
             if st.session_state.recortes:
                 for h_id, img in st.session_state.recortes.items(): st.image(img, caption=f"Módulo {h_id}")
             if st.button("🚀 PROCESAR LOTE", use_container_width=True, type="primary"):
-                if not st.session_state.recortes: st.error("Lote vacío.")
+                if not st.session_state.recortes: 
+                    st.error("Lote vacío.")
                 else:
                     config = MACHINE_CONFIGS[machine_selected_global]
                     t_missing, t_nodes = 0, 0
@@ -403,12 +378,14 @@ with tab_analisis:
                         salud_final = ((t_nodes - t_missing) / t_nodes) * 100
                         ruta_final = guardar_evidencia_fisica(Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB)), machine_selected_global)
                         
-                        # Escribir a GSheets
-                        GSheetsCRUD.save_test_result(machine_selected_global, salud_final, t_missing, [], ruta_final)
+                        # Escribir a PostgreSQL
+                        with conn.session as db:
+                            crud.save_test_result(db, machine_selected_global, salud_final, t_missing, [], ruta_final)
                         
                         st.session_state.recortes = {}
-                        st.success("✅ Datos transferidos a Google Sheets.")
-                        time.sleep(1); st.rerun()
+                        st.success("✅ Datos transferidos a PostgreSQL.")
+                        time.sleep(1)
+                        st.rerun()
 
 # TAB 4: GESTIÓN (ADMIN)
 with tab_gestion:
@@ -416,11 +393,12 @@ with tab_gestion:
         st.warning("⚠️ Nivel de acceso insuficiente. Solo Administradores de Planta.")
     else:
         st.subheader("📈 Rendimiento de Red (7 Días)")
-        df_stats = GSheetsCRUD.get_history_range(datetime.now() - timedelta(days=7), datetime.now())
+        with conn.session as db:
+            df_stats = crud.get_history_range(db, datetime.now() - timedelta(days=7), datetime.now())
 
         if not df_stats.empty:
-            df_stats['health_score'] = pd.to_numeric(df_stats['health_score'])
-            promedio_real = df_stats.groupby("machine_name")["health_score"].mean()
+            df_stats['health_score'] = pd.to_numeric(df_stats['Salud %']) # Usamos la llave generada en crud.py
+            promedio_real = df_stats.groupby("Máquina")["health_score"].mean()
             full_series = pd.Series(0, index=lista_maquinas)
             grafica_final = promedio_real.combine_first(full_series).sort_index()
             st.bar_chart(grafica_final, color="#3b82f6")
@@ -433,8 +411,10 @@ with tab_gestion:
         f_i = c_r1.date_input("Fecha Inicio", value=datetime.now()-timedelta(days=7))
         f_f = c_r2.date_input("Fecha Fin")
         
-        if st.button("📊 Extraer Archivos de Sheets", use_container_width=True):
-            datos = GSheetsCRUD.get_history_range(f_i, f_f)
+        if st.button("📊 Extraer Archivos de Base de Datos", use_container_width=True):
+            with conn.session as db:
+                datos = crud.get_history_range(db, f_i, f_f)
+                
             if not datos.empty:
                 st.session_state.archivo_csv_listo = datos.to_csv(index=False).encode('utf-8')
                 st.session_state.mostrar_descargas = True
