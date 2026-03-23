@@ -38,29 +38,22 @@ except ImportError as e:
 # =========================================================
 # 2. CONEXIÓN DIRECTA A POSTGRESQL
 # ========================================================
-
-# Conexión
+# Conexión nativa
 conn = st.connection("postgresql", type="sql")
 
 def ejecutar_query(query, params=None):
     """Ejecuta una consulta SELECT de forma segura"""
     try:
-        # Usamos text() para que SQLAlchemy no confunda los dos puntos (:) 
-        # con sintaxis interna de la base de datos
+        # Usar text() es obligatorio en versiones recientes para mapear :u correctamente
         return conn.query(text(query), params=params, ttl=0)
     except Exception as e:
-        st.error(f"Error en la consulta: {e}")
+        st.error(f"Error de consulta: {e}")
         return pd.DataFrame()
 
-# --- Bloque de Login ---
-user_input = st.text_input("Usuario")
-# ... resto del código ...
+# --- Ejemplo de uso en el Login ---
 if st.button("Entrar"):
-    # IMPORTANTE: Asegúrate de que los nombres coincidan con la tabla creada arriba
     res = ejecutar_query('SELECT * FROM usuarios WHERE username = :u', params={"u": user_input})
-
-# Al llamar a la función en el login:
-res = ejecutar_query('SELECT * FROM usuarios WHERE username = :u', params={"u": user_input})
+    if not res.empty:
 
 def ejecutar_comando(query, params=None):
     """Ejecuta un comando que modifica datos (INSERT, UPDATE, DELETE)"""
