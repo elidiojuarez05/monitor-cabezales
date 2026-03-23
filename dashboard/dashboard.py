@@ -54,19 +54,24 @@ except ImportError as e:
 conn = st.connection("postgresql", type="sql")
 
 def query_db(sql_string, params=None):
-    """Consulta segura a Postgres devolviendo un DataFrame"""
+    """Consulta segura que libera la conexión inmediatamente"""
     try:
-        return conn.query(sql_string, params=params, ttl=0)
+        # Usamos el motor de sqlalchemy contenido en st.connection
+        with conn.session as session:
+            result = session.execute(text(sql_string), params or {})
+            # Convertimos a DataFrame y cerramos sesión implícitamente al salir del 'with'
+            df = pd.DataFrame(result.fetchall(), columns=result.keys())
+            return df
     except Exception as e:
         st.error(f"Error SQL: {e}")
         return pd.DataFrame()
 
 def commit_db(sql_string, params=None):
-    """Ejecuta comandos de escritura en Postgres"""
+    """Ejecuta escritura y hace commit forzando el cierre de sesión"""
     try:
-        with conn.session as s:
-            s.execute(text(sql_string), params)
-            s.commit()
+        with conn.session as session:
+            session.execute(text(sql_string), params or {})
+            session.commit()
         return True
     except Exception as e:
         st.error(f"Error de escritura: {e}")
@@ -170,11 +175,11 @@ def save_test_result(machine_name, health_score, missing_nodes, health_map, evid
 def render_machine_card(m_name, fecha_consulta, suffix=""):
     # Obtener el último test del día para esa máquina en Postgres
     fecha_str = fecha_consulta.strftime('%Y-%m-%d')
-    res_test = query_db("""
+    res_test = conn.query("""
         SELECT * FROM test_results 
         WHERE machine_name = :m AND DATE(timestamp) = :d
         ORDER BY timestamp DESC LIMIT 1
-    """, {"m": m_name, "d": fecha_str})
+    """, params={"m": m_name, "d": fecha_str}, ttl=10)
     
     last_test = None
     if not res_test.empty:
