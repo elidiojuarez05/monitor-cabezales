@@ -461,24 +461,41 @@ with tab_gestion:
         st.header("🛠️ Panel de Control Administrativo")
         
         # --- KPI GLOBAL ---
+        # --- KPI GLOBAL (CORREGIDO PARA POSTGRESQL) ---
         st.subheader("📈 Rendimiento General (Últimos 7 días)")
-        f_inicio = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-        f_fin = datetime.now().strftime('%Y-%m-%d')
+        
+        # Definir fechas
+        f_inicio = (datetime.now() - timedelta(days=7)).date()
+        f_fin = datetime.now().date()
+        
+        # Consulta con cast explícito a DATE para evitar errores de tipo en Postgres
         df_stats = query_db("""
-            SELECT machine_name as "Máquina", health_score as "Salud %", missing_nodes as "Nodos Caídos", timestamp as "Fecha"
-            FROM test_results WHERE DATE(timestamp) >= :fi AND DATE(timestamp) <= :ff
+            SELECT 
+                machine_name, 
+                health_score, 
+                timestamp 
+            FROM test_results 
+            WHERE timestamp::date >= :fi AND timestamp::date <= :ff
         """, {"fi": f_inicio, "ff": f_fin})
 
         todas_las_maquinas = list(MACHINE_CONFIGS.keys())
 
         if not df_stats.empty:
-            promedio_real = df_stats.groupby("Máquina")["Salud %"].mean()
-            full_series = pd.Series(0, index=todas_las_maquinas)
-            grafica_final = promedio_real.combine_first(full_series).sort_index()
+            # Aseguramos que health_score sea numérico para evitar errores en mean()
+            df_stats['health_score'] = pd.to_numeric(df_stats['health_score'], errors='coerce')
+            
+            # Agrupamos y calculamos el promedio
+            promedio_real = df_stats.groupby("machine_name")["health_score"].mean()
+            
+            # Reindexamos para que aparezcan todas las máquinas, incluso las que tienen 0%
+            grafica_final = promedio_real.reindex(todas_las_maquinas, fill_value=0)
+            
             st.bar_chart(grafica_final, color="#28a745")
         else:
-            st.bar_chart(pd.Series(0, index=todas_las_maquinas), color="#6c757d")
-            st.info("No hay datos recientes. Todas las máquinas se muestran en 0%.")
+            # Si no hay datos, mostrar barras en cero para mantener el diseño
+            chart_vacio = pd.Series(0, index=todas_las_maquinas)
+            st.bar_chart(chart_vacio, color="#6c757d")
+            st.info("No hay registros en los últimos 7 días.")
 
         # --- GESTIÓN DE USUARIOS ---
         col_u1, col_u2 = st.columns(2)
