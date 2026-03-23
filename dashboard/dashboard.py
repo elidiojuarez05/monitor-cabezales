@@ -35,10 +35,12 @@ except ImportError as e:
 # =========================================================
 conn = st.connection("postgresql", type="sql")
 
-def ejecutar_query(query, params=None):
-    """Ejecuta consultas SELECT"""
+def ejecutar_query(query_string, params=None):
+    """Ejecuta consultas SELECT pasando el SQL como string para evitar errores de hash"""
     try:
-        return conn.query(text(query), params=params, ttl=0)
+        # Pasamos la cadena de texto directamente, no el objeto text()
+        # El parámetro ttl=0 es vital para que veas cambios en tiempo real
+        return conn.query(query_string, params=params, ttl=0)
     except Exception as e:
         st.error(f"Error en base de datos: {e}")
         return pd.DataFrame()
@@ -63,28 +65,33 @@ if 'authenticated' not in st.session_state:
 if not st.session_state.authenticated:
     st.markdown("## 🔐 Acceso al Sistema")
     with st.container(border=True):
-        u_ingreso = st.text_input("Usuario")
+        u_ingreso = st.text_input("Usuario").strip() # Quitamos espacios
         p_ingreso = st.text_input("Contraseña", type="password")
+        
         if st.button("🚀 Entrar al Monitor", use_container_width=True):
-            # Buscamos al usuario en Postgres
-            res = ejecutar_query('SELECT * FROM usuarios WHERE username = :u', {"u": u_ingreso})
+            # Usamos una consulta simple. El parámetro :u es estándar para st.connection
+            query_login = "SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u)"
+            res = ejecutar_query(query_login, params={"u": u_ingreso})
             
             if not res.empty:
-                db_pass = str(res.iloc[0]['password'])
+                # Extraemos los datos de la primera fila encontrada
+                db_pass = str(res.iloc[0]['password']).strip()
+                user_role = str(res.iloc[0]['role']).strip()
+                
+                # Hash de la contraseña ingresada para comparar
                 input_hash = hashlib.sha256(p_ingreso.encode()).hexdigest()
                 
-                # Verificación (soporta texto plano para pruebas o hash SHA256)
                 if p_ingreso == db_pass or input_hash == db_pass:
                     st.session_state.authenticated = True
                     st.session_state.username = u_ingreso
-                    st.session_state.role = res.iloc[0]['role']
+                    st.session_state.role = user_role
                     st.success("Acceso concedido")
-                    time.sleep(1)
+                    time.sleep(0.5)
                     st.rerun()
                 else:
-                    st.error("Contraseña incorrecta")
+                    st.error("❌ Contraseña incorrecta")
             else:
-                st.error("Usuario no encontrado")
+                st.error(f"❌ El usuario '{u_ingreso}' no existe en la base de datos.")
     st.stop()
 
 # =========================================================
