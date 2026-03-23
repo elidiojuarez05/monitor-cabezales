@@ -4,3 +4,4 @@ sqlalchemy
 pandas
 opencv-python-headless
 streamlit-cropper
+pillow
