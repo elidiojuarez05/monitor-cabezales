@@ -10,7 +10,6 @@ from PIL import Image
 from datetime import datetime, timedelta
 import time
 import base64
-from streamlit_gsheets import GSheetsConnection
 import streamlit as st
 import pandas as pd
 import psycopg2 # Asegúrate de tenerlo en requirements.txt
