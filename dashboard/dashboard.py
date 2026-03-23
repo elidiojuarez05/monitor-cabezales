@@ -1,202 +1,226 @@
-import streamlit as st
-import pandas as pd
+import sys
+import os
+import hashlib
 import numpy as np
 import cv2
-import hashlib
-import os
-import sys
-import time
+import pandas as pd
+import streamlit as st
+from streamlit_cropper import st_cropper
 from PIL import Image
 from datetime import datetime, timedelta
+import time
 from sqlalchemy import text
 
 # =========================================================
-# 1. CONFIGURACIÓN DE PÁGINA Y RUTAS
+# 1. CONFIGURACIÓN DE RUTAS Y BACKEND
 # =========================================================
-st.set_page_config(page_title="Print Head Monitor", layout="wide", initial_sidebar_state="expanded")
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+    backend_dir = os.path.join(sys._MEIPASS, "backend")
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(BASE_DIR)
+    backend_dir = os.path.join(project_root, "backend")
 
-# Ajuste de rutas para importar backend
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-backend_path = os.path.join(project_root, "backend")
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
 
-if backend_path not in sys.path:
-    sys.path.insert(0, backend_path)
-
+# Importación de tus módulos personalizados
 try:
     import image_processor
     from config import MACHINE_CONFIGS
+    # crud.py se usará para funciones específicas si es necesario
 except ImportError as e:
-    st.error(f"Error al importar módulos del backend: {e}")
+    st.error(f"❌ Error al cargar módulos del backend: {e}")
     st.stop()
 
 # =========================================================
-# 2. CONEXIÓN A BASE DE DATOS (POSTGRESQL)
+# 2. CONFIGURACIÓN DE PÁGINA Y CONEXIÓN POSTGRES
 # =========================================================
+st.set_page_config(page_title="Print Head Monitor Pro", layout="wide", initial_sidebar_state="expanded")
+
+# Conexión nativa de Streamlit a Postgres
 conn = st.connection("postgresql", type="sql")
 
-def ejecutar_query(query_string, params=None):
-    """Ejecuta consultas SELECT pasando el SQL como string para evitar errores de hash"""
+def query_db(sql, params=None):
+    """Consulta segura que devuelve DataFrame"""
     try:
-        # Pasamos la cadena de texto directamente, no el objeto text()
-        # El parámetro ttl=0 es vital para que veas cambios en tiempo real
-        return conn.query(query_string, params=params, ttl=0)
+        return conn.query(sql, params=params, ttl=0)
     except Exception as e:
-        st.error(f"Error en base de datos: {e}")
+        st.error(f"Error SQL: {e}")
         return pd.DataFrame()
 
-def ejecutar_comando(query, params=None):
-    """Ejecuta INSERT, UPDATE, DELETE"""
+def commit_db(sql, params=None):
+    """Ejecuta INSERT/UPDATE/DELETE"""
     try:
         with conn.session as s:
-            s.execute(text(query), params)
+            s.execute(text(sql), params)
             s.commit()
         return True
     except Exception as e:
-        st.error(f"Error al guardar: {e}")
+        st.error(f"Error de escritura: {e}")
         return False
 
 # =========================================================
-# 3. LÓGICA DE AUTENTICACIÓN
+# 3. ESTADOS DE SESIÓN Y LOGICA DE CARRUSEL
 # =========================================================
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
+if 'indice_carrusel' not in st.session_state:
+    st.session_state.indice_carrusel = 0
 
+# =========================================================
+# 4. SISTEMA DE AUTENTICACIÓN (DISEÑO DEL NUEVO DASHBOARD)
+# =========================================================
 if not st.session_state.authenticated:
-    st.markdown("## 🔐 Acceso al Sistema")
-    with st.container(border=True):
-        u_ingreso = st.text_input("Usuario").strip() # Quitamos espacios
-        p_ingreso = st.text_input("Contraseña", type="password")
-        
-        if st.button("🚀 Entrar al Monitor", use_container_width=True):
-            # Usamos una consulta simple. El parámetro :u es estándar para st.connection
-            query_login = "SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u)"
-            res = ejecutar_query(query_login, params={"u": u_ingreso})
-            
-            if not res.empty:
-                # Extraemos los datos de la primera fila encontrada
-                db_pass = str(res.iloc[0]['password']).strip()
-                user_role = str(res.iloc[0]['role']).strip()
-                
-                # Hash de la contraseña ingresada para comparar
-                input_hash = hashlib.sha256(p_ingreso.encode()).hexdigest()
-                
-                if p_ingreso == db_pass or input_hash == db_pass:
-                    st.session_state.authenticated = True
-                    st.session_state.username = u_ingreso
-                    st.session_state.role = user_role
-                    st.success("Acceso concedido")
-                    time.sleep(0.5)
-                    st.rerun()
+    st.markdown("""
+        <style>
+        .login-box { background-color: #f0f2f6; padding: 2rem; border-radius: 10px; border: 1px solid #d1d5db; }
+        </style>
+    """, unsafe_allow_dict=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image("https://cdn-icons-png.flaticon.com/512/2554/2554030.png", width=80)
+        st.title("Acceso al Monitor")
+        with st.container(border=True):
+            u = st.text_input("Usuario").strip()
+            p = st.text_input("Contraseña", type="password")
+            if st.button("INGRESAR AL SISTEMA", use_container_width=True, type="primary"):
+                res = query_db("SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u)", {"u": u})
+                if not res.empty:
+                    db_pass = str(res.iloc[0]['password']).strip()
+                    input_hash = hashlib.sha256(p.encode()).hexdigest()
+                    if p == db_pass or input_hash == db_pass:
+                        st.session_state.authenticated = True
+                        st.session_state.username = u
+                        st.session_state.role = res.iloc[0]['role']
+                        st.rerun()
+                    else:
+                        st.error("Contraseña incorrecta")
                 else:
-                    st.error("❌ Contraseña incorrecta")
-            else:
-                st.error(f"❌ El usuario '{u_ingreso}' no existe en la base de datos.")
+                    st.error("Usuario no registrado")
     st.stop()
 
 # =========================================================
-# 4. INTERFAZ PRINCIPAL (DASHBOARD)
+# 5. SIDEBAR (DETALLES EXACTOS DEL NUEVO DASHBOARD)
 # =========================================================
-
-# Sidebar con controles
 with st.sidebar:
-    st.title(f"👤 {st.session_state.username}")
-    st.caption(f"Rol: {st.session_state.role.upper()}")
+    st.image("https://cdn-icons-png.flaticon.com/512/9351/9351296.png", width=100)
+    st.markdown(f"### 👷 {st.session_state.username.upper()}")
+    st.caption(f"Status: Conectado a PostgreSQL | Rol: {st.session_state.role}")
     st.divider()
     
+    st.subheader("Configuración de Vista")
+    refresco_auto = st.toggle("Refresco Automático (15s)", value=True)
     sensibilidad = st.slider("Sensibilidad de Escaneo", 0.01, 0.20, 0.05)
     
-    if st.button("🚪 Cerrar Sesión", type="primary", use_container_width=True):
+    if st.button("Cerrar Sesión", use_container_width=True):
         st.session_state.authenticated = False
         st.rerun()
 
-# Tabs de navegación
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Estado Global", "📸 Captura Test", "📈 Historial", "⚙️ Admin"])
+# =========================================================
+# 6. CUERPO PRINCIPAL - TABS
+# =========================================================
+t1, t2, t3, t4 = st.tabs(["📊 ESTADO GLOBAL", "📸 CAPTURA TEST", "📈 HISTORIAL", "⚙️ ADMIN"])
 
-# --- TAB 1: ESTADO ACTUAL ---
-with tab1:
-    st.subheader("Estado de Inyectores por Máquina")
-    # Traer el último test de cada máquina
-    query_last = """
-        SELECT DISTINCT ON (machine_name) machine_name, health_score, missing_nodes, timestamp 
-        FROM test_results ORDER BY machine_name, timestamp DESC
-    """
-    df_actual = ejecutar_query(query_last)
+# --- TAB 1: ESTADO GLOBAL (CARRUSEL DINÁMICO) ---
+with t1:
+    lista_maquinas = list(MACHINE_CONFIGS.keys())
+    idx = st.session_state.indice_carrusel
     
-    cols = st.columns(3)
-    for i, (m_name, config) in enumerate(MACHINE_CONFIGS.items()):
-        with cols[i % 3]:
-            info_m = df_actual[df_actual['machine_name'] == m_name]
+    # Seleccionamos 2 máquinas para mostrar (efecto carrusel)
+    maquinas_visibles = [lista_maquinas[idx % len(lista_maquinas)], 
+                         lista_maquinas[(idx + 1) % len(lista_maquinas)]]
+    
+    c1, c2 = st.columns(2)
+    for i, m_name in enumerate(maquinas_visibles):
+        with [c1, c2][i]:
+            # Traer último dato de Postgres
+            last_test = query_db("""
+                SELECT health_score, missing_nodes, timestamp 
+                FROM test_results WHERE machine_name = :m 
+                ORDER BY timestamp DESC LIMIT 1
+            """, {"m": m_name})
+            
             with st.container(border=True):
-                if not info_m.empty:
-                    salud = info_m.iloc[0]['health_score']
-                    nodos = info_m.iloc[0]['missing_nodes']
-                    st.metric(m_name, f"{salud:.1f}%", f"-{nodos} inyectores", delta_color="inverse")
-                    st.caption(f"Actualizado: {info_m.iloc[0]['timestamp'].strftime('%H:%M - %d/%m')}")
+                st.subheader(f"📟 {m_name}")
+                if not last_test.empty:
+                    val = last_test.iloc[0]['health_score']
+                    nodos = last_test.iloc[0]['missing_nodes']
+                    ts = last_test.iloc[0]['timestamp']
+                    
+                    st.metric("Salud de Inyectores", f"{val:.2f}%", f"-{nodos} caídos", delta_color="inverse")
+                    st.progress(val/100)
+                    st.caption(f"Último Test: {ts.strftime('%d/%m/%Y %H:%M')}")
                 else:
-                    st.metric(m_name, "N/A", "Sin datos")
+                    st.warning("Sin registros recientes")
 
-# --- TAB 2: CAPTURA ---
-with tab2:
-    st.subheader("Nueva Inspección de Cabezal")
-    maquina_selec = st.selectbox("Seleccionar Máquina", list(MACHINE_CONFIGS.keys()))
-    foto = st.camera_input("Tomar foto del test")
+# --- TAB 2: CAPTURA TEST (PROCESAMIENTO) ---
+with t2:
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        maquina = st.selectbox("Seleccione Máquina para Inspección", lista_maquinas)
+        foto = st.camera_input("Capturar Test de Inyectores")
     
     if foto:
-        temp_file = "temp_capture.jpg"
-        with open(temp_file, "wb") as f:
-            f.write(foto.getbuffer())
-        
-        with st.spinner("Procesando imagen..."):
-            conf = MACHINE_CONFIGS[maquina_selec]
-            mapa, img_res, msg = image_processor.process_test_image_v2(temp_file, conf, sensibilidad)
-            
-            if mapa is not None:
-                salud = (np.sum(mapa) / mapa.size) * 100
-                fallas = int(np.count_nonzero(mapa == 0))
+        with col_b:
+            with st.spinner("Analizando matriz de inyectores..."):
+                temp_path = "temp_scan.jpg"
+                with open(temp_path, "wb") as f:
+                    f.write(foto.getbuffer())
                 
-                # Guardar resultado en Postgres
-                query_ins = """
-                    INSERT INTO test_results (machine_name, health_score, missing_nodes, timestamp)
-                    VALUES (:m, :s, :f, :t)
-                """
-                exito = ejecutar_comando(query_ins, {
-                    "m": maquina_selec, "s": salud, "f": fallas, "t": datetime.now()
-                })
+                config = MACHINE_CONFIGS[maquina]
+                mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config, sensibilidad)
                 
-                if exito:
-                    st.image(cv2.cvtColor(img_res, cv2.COLOR_BGR2RGB), caption="Resultado del Análisis")
-                    st.success(f"Guardado. Salud: {salud:.2f}% | Fallas: {fallas}")
-                    st.balloons()
-            else:
-                st.error("No se pudo procesar la imagen. Verifique la iluminación.")
+                if mapa is not None:
+                    salud = (np.sum(mapa) / mapa.size) * 100
+                    fallas = int(np.count_nonzero(mapa == 0))
+                    
+                    # Guardar en Postgres
+                    commit_db("""
+                        INSERT INTO test_results (machine_name, health_score, missing_nodes, timestamp)
+                        VALUES (:m, :s, :f, :t)
+                    """, {"m": maquina, "s": salud, "f": fallas, "t": datetime.now()})
+                    
+                    st.image(cv2.cvtColor(img_res, cv2.COLOR_BGR2RGB), caption="Escaneo Finalizado")
+                    st.success(f"Resultados guardados: {salud:.2f}% de inyectores activos.")
+                else:
+                    st.error(f"Error de procesamiento: {msg}")
 
 # --- TAB 3: HISTORIAL ---
-with tab3:
-    st.subheader("Tendencia de Salud (Últimos 30 días)")
-    df_hist = ejecutar_query("SELECT timestamp, machine_name, health_score FROM test_results ORDER BY timestamp ASC")
-    if not df_hist.empty:
-        # Gráfico de líneas dinámico
-        df_pivot = df_hist.pivot(index='timestamp', columns='machine_name', values='health_score')
-        st.line_chart(df_pivot)
-    else:
-        st.info("Aún no hay datos históricos para mostrar.")
+with t3:
+    st.subheader("Análisis de Tendencia")
+    df_h = query_db("SELECT timestamp, machine_name, health_score FROM test_results ORDER BY timestamp ASC")
+    if not df_h.empty:
+        chart_data = df_h.pivot(index='timestamp', columns='machine_name', values='health_score')
+        st.line_chart(chart_data)
+        st.dataframe(df_h.sort_values(by='timestamp', ascending=False), use_container_width=True)
 
 # --- TAB 4: ADMIN ---
-with tab4:
+with t4:
     if st.session_state.role == 'admin':
-        st.subheader("Gestión de Usuarios")
-        df_users = ejecutar_query("SELECT id, username, role FROM usuarios")
-        st.dataframe(df_users, use_container_width=True)
+        st.subheader("Gestión de Usuarios y Base de Datos")
+        users = query_db("SELECT id, username, role FROM usuarios")
+        st.table(users)
         
-        with st.expander("➕ Registrar Nuevo Operador"):
-            nuevo_u = st.text_input("ID Usuario")
-            nuevo_p = st.text_input("Password", type="password")
-            if st.button("Crear Usuario"):
-                h = hashlib.sha256(nuevo_p.encode()).hexdigest()
-                ejecutar_comando("INSERT INTO usuarios (username, password, role) VALUES (:u, :p, :r)",
-                                 {"u": nuevo_u, "p": h, "r": "operator"})
-                st.success("Usuario registrado correctamente.")
+        with st.expander("Añadir Personal"):
+            new_u = st.text_input("Username")
+            new_p = st.text_input("Password", type="password")
+            if st.button("Registrar"):
+                commit_db("INSERT INTO usuarios (username, password, role) VALUES (:u, :p, :r)",
+                          {"u": new_u, "p": new_p, "r": "operator"})
                 st.rerun()
     else:
-        st.warning("Acceso restringido. Solo administradores pueden ver esta pestaña.")
+        st.lock_icon()
+        st.info("Esta sección es solo para el perfil Administrador.")
+
+# =========================================================
+# 7. MOTOR DE SINCRONIZACIÓN (ANTI-LOGOUT)
+# =========================================================
+if refresco_auto and st.session_state.authenticated:
+    # Si no hay una foto en proceso, refrescamos cada 15 seg para el carrusel
+    if not foto:
+        time.sleep(15)
+        st.session_state.indice_carrusel = (st.session_state.indice_carrusel + 2) % len(lista_maquinas)
+        st.rerun()
