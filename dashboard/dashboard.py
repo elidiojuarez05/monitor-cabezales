@@ -435,28 +435,28 @@ if foto:
     st.session_state.bloquear_refresco = True
     contenedor_estado = st.empty()
     
-    with st.spinner("🔍 Optimizando imagen para análisis..."):
+    with st.spinner("🔍 Procesando captura..."):
         img_bytes = foto.getvalue()
-        res = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+        # Decodificar y redimensionar si es muy grande para evitar errores de memoria
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        res = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         if res is not None:
+            # Redimensión preventiva para móviles (Max 1280px ancho)
+            if res.shape[1] > 1280:
+                scale = 1280 / res.shape[1]
+                res = cv2.resize(res, None, fx=scale, fy=scale)
+
             try:
+                # Ajuste de Zoom Digital con seguridad de límites
                 if zoom_level > 0:
                     h, w = res.shape[:2]
-                    m_h, m_w = int(h * (zoom_level / 200)), int(w * (zoom_level / 200))
-                    res = res[m_h:h-m_h, m_w:w-m_w]
+                    margin_h = int(h * (zoom_level / 200))
+                    margin_w = int(w * (zoom_level / 200))
+                    # Asegurar que el recorte no sea mayor que la imagen
+                    res = res[margin_h:h-margin_h, margin_w:w-margin_w]
 
-                gray = cv2.cvtColor(res, cv2.COLOR_BGR2GRAY)
-                edged = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 50, 150)
-                cnts, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                
-                if cnts:
-                    c = max(cnts, key=cv2.contourArea)
-                    if cv2.contourArea(c) > 5000:
-                        x, y, w, h = cv2.boundingRect(c)
-                        res = res[y:y+h, x:x+w]
-                        st.toast("🎯 Test detectado y centrado")
-
+                # --- PROCESAMIENTO ---
                 temp_p = os.path.join(BASE_DIR, "temp_capture.jpg")
                 cv2.imwrite(temp_p, res)
                 
@@ -775,27 +775,31 @@ with tab_gestion:
             cd2.download_button("📉 DESCARGAR CSV", st.session_state.archivo_csv_listo, "Datos.csv", "text/csv", use_container_width=True)
 
 # =========================================================
-# MOTOR DE SINCRONIZACIÓN ÚNICO (VERSION ANTI-LOGOUT Y ANTI-INTERRUPCIÓN)
+# MOTOR DE SINCRONIZACIÓN CORREGIDO
 # =========================================================
-# Solo activamos el refresco si el usuario está logueado
 if st.session_state.authenticated:
-    # Definimos qué actividades bloquean el refresco para no interrumpir al usuario
-    # AÑADIMOS: st.session_state.get("editando_manual", False)
+    # Definimos qué actividades bloquean el refresco
     interactuando = (
         st.session_state.get("bloquear_refresco", False) or 
         run_camera or 
         st.session_state.get("mostrar_descargas", False) or
-        st.session_state.get("editando_manual", False) # CRÍTICO: Pausa si está recortando manualmente
+        st.session_state.get("editando_manual", False)
     )
 
-    if interactuando:
-        st.sidebar.warning("⏸️ Modo edición activo.")
+    if not interactuando:
+        # Tiempo de espera entre saltos del carrusel (ej. 10 segundos)
+        TIEMPO_REFRESCO = 10 
         
-        # Botón para forzar el reinicio si algo sale mal
-        if st.sidebar.button("Reanudar Carrusel Manualmente"):
-            # Forzamos todas las variables de control a False
-            st.session_state.interactuando = False
-            if 'editando' in st.session_state:
-                st.session_state.editando = False
+        # Lógica de rotación de índice
+        st.session_state.indice_carrusel = (st.session_state.indice_carrusel + 2) % len(lista_maquinas)
+        
+        # El truco para el autorefresh en Streamlit sin componentes externos:
+        time.sleep(TIEMPO_REFRESCO)
+        st.rerun()
+    else:
+        st.sidebar.warning("⏸️ Carrusel en pausa (Modo edición/cámara)")
+        if st.sidebar.button("Reanudar Carrusel"):
+            st.session_state.editando_manual = False
+            st.session_state.bloquear_refresco = False
             st.rerun()
 
