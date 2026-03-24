@@ -19,35 +19,56 @@ from sqlalchemy import text
 st.set_page_config(page_title="Print Head Monitor", layout="wide")
 st.markdown("""
     <style>
-        /* Fondo de la aplicación principal */
+        /* Fondo principal de la app */
         .stApp {
-            background-color: #0b132b;
-           
+            background-color: #0b132b; /* Azul noche profundo */
+            color: #ffffff;
         }
 
-        /* Color de los Tabs (Pestañas) */
+        /* Estilo de los Tabs (Pestañas) */
         .stTabs [data-baseweb="tab-list"] {
-            background-color: #1b263b;
+            background-color: #1c2541;
             border-radius: 10px 10px 0 0;
-            padding: 5px;
-        }
-
-        /* Color de las tarjetas de máquinas */
-        div[data-testid="stMetricValue"] {
-            background-color: #1b263b;
-            border-radius: 10px;
             padding: 10px;
-            border: 1px solid #415a77;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            color: #ffffff !important;
         }
 
-        /* Texto de los headers */
+        /* Estilo de las tarjetas de las máquinas (Métricas) */
+        [data-testid="stMetricValue"] {
+            background-color: #1c2541;
+            border: 1px solid #3a506b;
+            border-radius: 10px;
+            padding: 15px !important;
+            color: #5bc0be !important; /* Azul cyan para los números */
+        }
+
+        /* Estilo para los títulos de las secciones */
         h1, h2, h3 {
-            color: #778da9 !important;
+            color: #5bc0be !important;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
-        /* Sidebar con tono más oscuro */
+        /* Sidebar (Panel lateral) */
         [data-testid="stSidebar"] {
-            background-color:#0056B3;
+            background-color: #0b132b;
+            border-right: 1px solid #3a506b;
+        }
+
+        /* Botones principales */
+        .stButton>button {
+            background-color: #3a506b;
+            color: white;
+            border-radius: 5px;
+            border: none;
+            transition: 0.3s;
+        }
+
+        .stButton>button:hover {
+            background-color: #5bc0be;
+            color: #0b132b;
         }
     </style>
 """, unsafe_allow_html=True)
