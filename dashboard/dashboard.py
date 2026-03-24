@@ -106,38 +106,39 @@ except ImportError as e:
 conn = st.connection("postgresql", type="sql")
 # --- PARCHE DE EMERGENCIA PARA LA BASE DE DATOS ---
 # Este bloque detecta qué columnas faltan y las crea automáticamente
+def patch_database():
+    # Definimos cada columna con su tipo
+    columnas = {
+        "health_map": "TEXT",
+        "missing_nodes": "INTEGER",
+        "evidence_path": "TEXT"
+    }
+    
+    for nombre_col, tipo_col in columnas.items():
+        try:
+            # Ejecutamos cada una por separado en su propio bloque
+            with conn.session as session:
+                session.execute(text(f"ALTER TABLE test_results ADD COLUMN IF NOT EXISTS {nombre_col} {tipo_col};"))
+                session.commit()
+        except Exception:
+            # Si ya existe (Error 42701), simplemente pasamos a la siguiente
+            pass
+            
+patch_database()
+    
+
 def query_db(sql_string, params=None):
     try:
         with conn.session as session:
             result = session.execute(text(sql_string), params or {})
-            columnas = list(result.keys())
-            filas = result.fetchall()
-            
-            if filas:
-                df = pd.DataFrame(filas, columns=columnas)
+            df = pd.DataFrame(result.fetchall())
+            if not df.empty:
+                df.columns = result.keys()
+                # Normalizar columnas a minúsculas
                 df.columns = [c.lower() for c in df.columns]
-                return df
-        return pd.DataFrame()
+            return df
     except Exception as e:
-        # Hacemos visible el error en lugar de ocultarlo
-        st.sidebar.error(f"⚠️ Error de conexión DB: {e}") 
         return pd.DataFrame()
-
-def check_password(u, p):
-    if not u or not p: return None
-
-    # Forzamos la búsqueda en minúsculas para evitar errores de tipeo (LOWER)
-    res = query_db("SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u)", {"u": u})
-    
-    if not res.empty:
-        fila = res.iloc[0].to_dict()
-        db_pass = str(fila.get('password', '')).strip()
-        input_hash = hashlib.sha256(p.encode()).hexdigest()
-        
-        if db_pass == input_hash or db_pass == p:
-            return fila
-            
-    return None
 
 def commit_db(sql_string, params=None):
     try:
@@ -329,35 +330,28 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
         """, unsafe_allow_html=True)
 
 # =========================================================
-# 4. LÓGICA DE SESIÓN Y LOGIN (CORREGIDO)
+# 6. LÓGICA DE AUTENTICACIÓN (LOGIN)
 # =========================================================
-# =========================================================
-# LÓGICA DE SESIÓN Y LOGIN
-# =========================================================
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-    st.session_state.username = ""  # <-- Esto evita el error de NoneType
-    st.session_state.role = "operator"
-
 if not st.session_state.authenticated:
     st.title("🔐 Acceso al Sistema")
-    u = st.text_input("Usuario", key="login_user")
-    p = st.text_input("Contraseña", type="password", key="login_pass")
     
-    if st.button("Ingresar", key="btn_login_main"):
-        user_data = check_password(u, p)
-        
-        # Verificación blindada: Nos aseguramos de que sea un diccionario
-        if isinstance(user_data, dict):
-            st.session_state.authenticated = True
-            # Usamos .get() para evitar errores si la columna no existe
-            st.session_state.username = user_data.get('username', u) 
-            st.session_state.role = user_data.get('role', 'operator')
+    user_input = st.text_input("Usuario")
+    pass_input = st.text_input("Contraseña", type="password")
+    
+    if st.button("Entrar", type="primary"):
+        user = check_password(user_input, pass_input)
+        if user:
+            st.session_state.update({
+                "authenticated": True, 
+                "user_role": user.role, 
+                "username": user.username
+            })
+            st.success(f"Bienvenido {user.username}")
             st.rerun()
         else:
-            st.error("❌ Usuario o contraseña incorrectos.")
-    
-    st.stop() # El muro que evita que se cargue el dashboard sin acceso
+            st.error("Usuario o contraseña incorrectos")
+            
+    st.stop()
 
 # =========================================================
 # 7. INTERFAZ PRINCIPAL (POST-LOGIN)
@@ -456,21 +450,8 @@ if run_camera:
     foto = st.camera_input("Capturar Test", key="cam_main")
 
 if foto:
-    # 1. Leer imagen
-    file_bytes = np.frombuffer(foto.getvalue(), np.uint8)
-    img_full = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    
-    # 2. REDIMENSIONAR (Para evitar el error de memoria en celular)
-    # Bajamos la resolución a un máximo de 1280px de ancho
-    h, w = img_full.shape[:2]
-    if w > 1280:
-        scale = 1280 / w
-        img_full = cv2.resize(img_full, (0,0), fx=scale, fy=scale)
-    
-    # 3. Guardar temporal y procesar...
-    temp_p = os.path.join(BASE_DIR, "temp_celular.jpg")
-    cv2.imwrite(temp_p, img_full)
-    # ... sigue tu llamada a image_processor.process_test_image_v2 ...
+    st.session_state.bloquear_refresco = True
+    contenedor_estado = st.empty()
     
     with st.spinner("🔍 Optimizando imagen para análisis..."):
         img_bytes = foto.getvalue()
@@ -815,23 +796,24 @@ with tab_gestion:
 # MOTOR DE SINCRONIZACIÓN ÚNICO (VERSION ANTI-LOGOUT Y ANTI-INTERRUPCIÓN)
 # =========================================================
 # Solo activamos el refresco si el usuario está logueado
-# Al final de tu archivo
 if st.session_state.authenticated:
-    # Si el usuario termina de editar, debemos limpiar el file_uploader manualmente o con una bandera
-    # Para que el carrusel sepa que ya no hay nada "subido"
-    
-    esta_editando = (
-        st.session_state.get("editando_manual", False) or 
-        st.session_state.get("bloquear_refresco", False)
+    # Definimos qué actividades bloquean el refresco para no interrumpir al usuario
+    # AÑADIMOS: st.session_state.get("editando_manual", False)
+    interactuando = (
+        st.session_state.get("bloquear_refresco", False) or 
+        run_camera or 
+        st.session_state.get("mostrar_descargas", False) or
+        st.session_state.get("editando_manual", False) # CRÍTICO: Pausa si está recortando manualmente
     )
 
-    if not esta_editando:
-        time.sleep(12)
-        # Avanzar carrusel
-        num_maquinas = len(lista_maquinas)
-        if num_maquinas > 0:
-            st.session_state.indice_carrusel = (st.session_state.indice_carrusel + 2) % num_maquinas
-        st.rerun()
-    else:
-        st.sidebar.caption("⏸️ Carrusel en pausa")
+    if interactuando:
+        st.sidebar.warning("⏸️ Modo edición activo.")
+        
+        # Botón para forzar el reinicio si algo sale mal
+        if st.sidebar.button("Reanudar Carrusel Manualmente"):
+            # Forzamos todas las variables de control a False
+            st.session_state.interactuando = False
+            if 'editando' in st.session_state:
+                st.session_state.editando = False
+            st.rerun()
 
