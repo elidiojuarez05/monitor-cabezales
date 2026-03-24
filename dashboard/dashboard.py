@@ -21,7 +21,7 @@ st.markdown("""
     <style>
         /* Fondo de la aplicación principal */
         .stApp {
-            background-color: #0b140b;
+            background-color: #0b132b;
            
         }
 
@@ -47,7 +47,7 @@ st.markdown("""
 
         /* Sidebar con tono más oscuro */
         [data-testid="stSidebar"] {
-            background-color: #0b132b;
+            background-color:#0056B3;
         }
     </style>
 """, unsafe_allow_html=True)
