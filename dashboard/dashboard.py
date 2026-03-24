@@ -540,6 +540,7 @@ with tab_analisis:
                 
                 # --- BOTÓN FINAL DE PROCESAMIENTO ---
                 if st.button("🚀 INICIAR PROCESAMIENTO TOTAL Y SINCRONIZAR", use_container_width=True, type="secondary"):
+                    map_json_total = "[]"
                     # Verificamos que estén todos los recortes necesarios
                     if len(st.session_state.recortes) < num_cabezales:
                         st.error(f"❌ Faltan recortes. Has guardado {len(st.session_state.recortes)} de {num_cabezales} cabezales.")
