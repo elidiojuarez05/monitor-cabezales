@@ -549,34 +549,22 @@ with tab_analisis:
                 
                 # --- BOTÓN FINAL DE PROCESAMIENTO ---
                 if st.button("🚀 INICIAR PROCESAMIENTO TOTAL Y SINCRONIZAR", use_container_width=True, type="secondary"):
-                    # Dentro del bloque de "🚀 INICIAR PROCESAMIENTO TOTAL"
-                    params = {
-                        "m": str(machine_selected_global),
-                        "s": float(salud_final),
-                        "n": int(t_missing),
-                        "map": str(map_json_total),
-                        "e": str(ruta_final) # Aseguramos que sea string
-                    }
-                    
-                    exito = commit_db("""
-                        INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
-                        VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
-                    """, params)
                     if len(st.session_state.recortes) < num_cabezales:
                         st.error(f"❌ Faltan recortes. Has guardado {len(st.session_state.recortes)} de {num_cabezales} cabezales.")
                     else:
-                        # --- INICIALIZACIÓN DE VARIABLES CRÍTICAS ---
+                        # 1. INICIALIZACIÓN SEGURA DE VARIABLES
                         map_json_total = "[]"
                         all_maps = []
                         t_missing = 0
                         t_nodes = 0
                         ruta_final = ""
-                        salud_final = 0.0
+                        salud_final = 0.0  # <-- Aquí nace la variable para evitar el NameError
 
                         with st.spinner("Procesando matriz de nozzles..."):
                             config = MACHINE_CONFIGS[machine_selected_global]
                             img_res_final = None
                             
+                            # 2. PROCESAR CADA RECORTE
                             for h_id in sorted(st.session_state.recortes.keys()):
                                 img_c = st.session_state.recortes[h_id]
                                 img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
@@ -594,26 +582,26 @@ with tab_analisis:
                                     st.error(f"❌ Error procesando Cabezal {h_id}: {msg}")
                                     break
                             
+                            # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
                             if all_maps and img_res_final is not None:
                                 salud_final = float(((t_nodes - t_missing) / t_nodes) * 100)
                                 img_pil_res = Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB))
                                 ruta_final = guardar_evidencia_fisica(img_pil_res, machine_selected_global)
                                 map_json_total = json.dumps(all_maps)
 
-                                # --- INTENTO DE ESCRITURA ---
-                                sql_insert = """
-                                    INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
-                                    VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
-                                """
+                                # Armamos los parámetros justo antes de enviarlos
                                 params = {
-                                    "m": machine_selected_global,
-                                    "s": salud_final,
-                                    "n": t_missing,
-                                    "map": map_json_total,
-                                    "e": ruta_final
+                                    "m": str(machine_selected_global),
+                                    "s": float(salud_final),
+                                    "n": int(t_missing),
+                                    "map": str(map_json_total),
+                                    "e": str(ruta_final)
                                 }
                                 
-                                exito = commit_db(sql_insert, params)
+                                exito = commit_db("""
+                                    INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
+                                    VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
+                                """, params)
 
                                 if exito:
                                     st.session_state.recortes = {}
@@ -623,8 +611,9 @@ with tab_analisis:
                                     time.sleep(2)
                                     st.rerun()
                                 else:
-                                    # Si llega aquí, el error de SQL ya se mostró en commit_db
                                     st.error("❌ Los datos se procesaron pero NO se pudieron guardar por error en la base de datos.")
+                            else:
+                                st.warning("⚠️ No se generaron mapas válidos. Revisa los recortes de la imagen.")
 
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
