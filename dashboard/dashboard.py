@@ -54,18 +54,25 @@ except ImportError as e:
 conn = st.connection("postgresql", type="sql")
 # --- PARCHE DE EMERGENCIA PARA LA BASE DE DATOS ---
 # Este bloque detecta qué columnas faltan y las crea automáticamente
-try:
-    columnas_necesarias = {
+# --- PARCHE DE SEGURIDAD PARA LA BASE DE DATOS (CORREGIDO) ---
+def patch_database():
+    columnas = {
         "health_map": "TEXT",
         "missing_nodes": "INTEGER",
-        "evidence_path": "TEXT"  # <--- ESTA ES LA QUE ESTÁ CAUSANDO EL ERROR AHORA
+        "evidence_path": "TEXT"
     }
     
-    for col, tipo in columnas_necesarias.items():
-        commit_db(f"ALTER TABLE test_results ADD COLUMN IF NOT EXISTS {col} {tipo};")
-except Exception as e:
-    # Si hay un error aquí, lo imprimimos para saber qué pasa
-    st.sidebar.error(f"Error actualizando DB: {e}")
+    for nombre_col, tipo_col in columnas.items():
+        try:
+            # Usamos IF NOT EXISTS para que Postgres no lance error si ya está creada
+            query_alter = f"ALTER TABLE test_results ADD COLUMN IF NOT EXISTS {nombre_col} {tipo_col};"
+            commit_db(query_alter)
+        except Exception as e:
+            # Si falla por otra razón, solo lo registramos en la consola
+            print(f"Nota: La columna {nombre_col} ya existe o no se pudo crear: {e}")
+
+# Llamar al parche al iniciar
+patch_database()
     
 
 def query_db(sql_string, params=None):
