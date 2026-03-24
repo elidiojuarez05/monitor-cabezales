@@ -48,6 +48,28 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+
+
+
+
+# Crear un contenedor para los mensajes de alerta en la parte superior
+mensaje_login = st.empty()
+
+# ... (tu lógica de inputs de usuario/password) ...
+
+if st.button("Ingresar"):
+    if usuario == "admin" and password == "123":
+        mensaje_login.success("¡Bienvenido Admin!")
+        time.sleep(1) # Pausa breve para que el usuario vea el éxito
+        
+        # LIMPIEZA CRUCIAL:
+        mensaje_login.empty() # Borra el mensaje de éxito/error de la pantalla
+        st.session_state.autenticado = True
+        st.session_state.interactuando = False # Aprovechamos de resetear el carrusel
+        
+        st.rerun() # Recarga la app ya con el estado limpio
+    else:
+        mensaje_login.error("Contraseña incorrecta")
 # =========================================================
 # 2. CONFIGURACIÓN DE RUTAS Y PATHS
 # =========================================================
@@ -417,8 +439,9 @@ with st.sidebar:
     st.divider()
     fecha_consulta = st.date_input("📅 Consultar estado al día:", datetime.now().date())
     
-    if st.button("Cerrar Sesión"):
-        st.session_state.authenticated = False
+    if st.sidebar.button("Cerrar Sesión"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         st.rerun()
 
 # --- LÓGICA DE CÁMARA (MODO FOTO ) ---
