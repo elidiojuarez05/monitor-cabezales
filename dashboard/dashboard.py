@@ -807,13 +807,13 @@ if st.session_state.authenticated:
     )
 
     if interactuando:
-    st.sidebar.warning("⏸️ Modo edición activo.")
-    
-    # Botón para forzar el reinicio si algo sale mal
-    if st.sidebar.button("Reanudar Carrusel Manualmente"):
-        # Forzamos todas las variables de control a False
-        st.session_state.interactuando = False
-        if 'editando' in st.session_state:
-            st.session_state.editando = False
-        st.rerun()
+        st.sidebar.warning("⏸️ Modo edición activo.")
+        
+        # Botón para forzar el reinicio si algo sale mal
+        if st.sidebar.button("Reanudar Carrusel Manualmente"):
+            # Forzamos todas las variables de control a False
+            st.session_state.interactuando = False
+            if 'editando' in st.session_state:
+                st.session_state.editando = False
+            st.rerun()
 
