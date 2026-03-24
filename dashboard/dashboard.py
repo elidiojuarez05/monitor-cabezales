@@ -20,11 +20,6 @@ st.set_page_config(page_title="Print Head Monitor", layout="wide")
 # --- ESTILO VISUAL INDUSTRIAL ---
 st.markdown("""
     <style>
-        /* Fondo de la aplicación principal */
-        .stApp {
-            background-color: #0d1b2a;
-           
-        }
 
         /* Color de los Tabs (Pestañas) */
         .stTabs [data-baseweb="tab-list"] {
