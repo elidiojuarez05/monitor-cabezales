@@ -21,7 +21,7 @@ st.markdown("""
     <style>
         /* Fondo de la aplicación principal */
         .stApp {
-            background-color: #0d1b2a;
+            background-color: #707B7C;
             color: #e0e1dd;
         }
 
