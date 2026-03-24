@@ -52,6 +52,13 @@ except ImportError as e:
 
 # --- CONEXIÓN NATIVA A POSTGRESQL ---
 conn = st.connection("postgresql", type="sql")
+try:
+    # Intentamos añadir la columna por si no existe
+    commit_db("ALTER TABLE test_results ADD COLUMN IF NOT EXISTS health_map TEXT;")
+except Exception:
+    # Si ya existe, simplemente ignoramos el error
+    pass
+    
 
 def query_db(sql_string, params=None):
     """Consulta segura que libera la conexión inmediatamente"""
