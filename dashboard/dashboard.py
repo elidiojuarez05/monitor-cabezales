@@ -52,24 +52,6 @@ st.markdown("""
 
 
 
-# Crear un contenedor para los mensajes de alerta en la parte superior
-mensaje_login = st.empty()
-
-# ... (tu lógica de inputs de usuario/password) ...
-
-if st.button("Ingresar"):
-    if usuario == "admin" and password == "123":
-        mensaje_login.success("¡Bienvenido Admin!")
-        time.sleep(1) # Pausa breve para que el usuario vea el éxito
-        
-        # LIMPIEZA CRUCIAL:
-        mensaje_login.empty() # Borra el mensaje de éxito/error de la pantalla
-        st.session_state.autenticado = True
-        st.session_state.interactuando = False # Aprovechamos de resetear el carrusel
-        
-        st.rerun() # Recarga la app ya con el estado limpio
-    else:
-        mensaje_login.error("Contraseña incorrecta")
 # =========================================================
 # 2. CONFIGURACIÓN DE RUTAS Y PATHS
 # =========================================================
