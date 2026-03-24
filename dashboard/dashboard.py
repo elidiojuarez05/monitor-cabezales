@@ -54,8 +54,9 @@ except ImportError as e:
 conn = st.connection("postgresql", type="sql")
 # --- PARCHE DE EMERGENCIA PARA LA BASE DE DATOS ---
 # Este bloque detecta qué columnas faltan y las crea automáticamente
-# --- PARCHE DE SEGURIDAD PARA LA BASE DE DATOS (CORREGIDO) ---
+# --- PARCHE DE SEGURIDAD MEJORADO ---
 def patch_database():
+    # Definimos cada columna con su tipo
     columnas = {
         "health_map": "TEXT",
         "missing_nodes": "INTEGER",
@@ -64,14 +65,15 @@ def patch_database():
     
     for nombre_col, tipo_col in columnas.items():
         try:
-            # Usamos IF NOT EXISTS para que Postgres no lance error si ya está creada
-            query_alter = f"ALTER TABLE test_results ADD COLUMN IF NOT EXISTS {nombre_col} {tipo_col};"
-            commit_db(query_alter)
-        except Exception as e:
-            # Si falla por otra razón, solo lo registramos en la consola
-            print(f"Nota: La columna {nombre_col} ya existe o no se pudo crear: {e}")
+            # Ejecutamos cada una por separado en su propio bloque
+            with conn.session as session:
+                session.execute(text(f"ALTER TABLE test_results ADD COLUMN IF NOT EXISTS {nombre_col} {tipo_col};"))
+                session.commit()
+        except Exception:
+            # Si ya existe (Error 42701), simplemente pasamos a la siguiente
+            pass
 
-# Llamar al parche al iniciar
+# Ejecutar justo después de definir 'conn'
 patch_database()
     
 
@@ -547,6 +549,19 @@ with tab_analisis:
                 
                 # --- BOTÓN FINAL DE PROCESAMIENTO ---
                 if st.button("🚀 INICIAR PROCESAMIENTO TOTAL Y SINCRONIZAR", use_container_width=True, type="secondary"):
+                    # Dentro del bloque de "🚀 INICIAR PROCESAMIENTO TOTAL"
+                    params = {
+                        "m": str(machine_selected_global),
+                        "s": float(salud_final),
+                        "n": int(t_missing),
+                        "map": str(map_json_total),
+                        "e": str(ruta_final) # Aseguramos que sea string
+                    }
+                    
+                    exito = commit_db("""
+                        INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
+                        VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
+                    """, params)
                     if len(st.session_state.recortes) < num_cabezales:
                         st.error(f"❌ Faltan recortes. Has guardado {len(st.session_state.recortes)} de {num_cabezales} cabezales.")
                     else:
