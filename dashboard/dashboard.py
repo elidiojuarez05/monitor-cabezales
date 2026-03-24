@@ -784,17 +784,25 @@ if st.session_state.authenticated:
     )
 
     if not interactuando:
-        # Tiempo de espera (12 segundos)
+        # 1. Tiempo de espera (12 segundos)
         time.sleep(12) 
         
-        # 1. Avanzar carrusel lógicamente
+        # 2. Avanzar carrusel lógicamente
         num_maquinas = len(lista_maquinas)
         if num_maquinas > 0:
-            st.session_state.indice_carrusel = (st.session_state.indice_carrusel + 2) % num_maquinas
+            # Usamos .get para evitar errores si la llave no existe
+            actual = st.session_state.get('indice_carrusel', 0)
+            st.session_state.indice_carrusel = (actual + 2) % num_maquinas
         
-        # 2. Forzar refresco manteniendo la sesión activa
+        # 3. Forzar refresco
         st.rerun()
     else:
-        # Pequeño aviso visual opcional en el sidebar
-        st.sidebar.caption("⏸️ Actualización en pausa (Editando o Cámara activa)")   
+        # Si estamos interactuando, mostramos el mensaje
+        st.sidebar.warning("⏸️ Modo edición activo. El carrusel se reanudará cuando termines.")
+        
+        # OPCIONAL: Botón para forzar el reinicio del carrusel manualmente
+        if st.sidebar.button("▶️ Reanudar Carrusel Ahora"):
+            # Aquí forzamos el estado a False manualmente si es necesario
+            # st.session_state.editando = False 
+            st.rerun()   
 
