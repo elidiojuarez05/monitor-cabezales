@@ -540,91 +540,69 @@ with tab_analisis:
                 
                 # --- BOTÓN FINAL DE PROCESAMIENTO ---
                 if st.button("🚀 INICIAR PROCESAMIENTO TOTAL Y SINCRONIZAR", use_container_width=True, type="secondary"):
-                    map_json_total = "[]"
-                    # Verificamos que estén todos los recortes necesarios
                     if len(st.session_state.recortes) < num_cabezales:
                         st.error(f"❌ Faltan recortes. Has guardado {len(st.session_state.recortes)} de {num_cabezales} cabezales.")
                     else:
+                        # --- INICIALIZACIÓN DE VARIABLES CRÍTICAS ---
+                        map_json_total = "[]"
+                        all_maps = []
+                        t_missing = 0
+                        t_nodes = 0
+                        ruta_final = ""
+                        salud_final = 0.0
+
                         with st.spinner("Procesando matriz de nozzles..."):
-                            # Configuración de la máquina destino
                             config = MACHINE_CONFIGS[machine_selected_global]
-                            all_maps = []
-                            t_missing = 0
-                            t_nodes = 0
                             img_res_final = None
                             
-                            # Procesar cada recorte individualmente
                             for h_id in sorted(st.session_state.recortes.keys()):
                                 img_c = st.session_state.recortes[h_id]
-                                
-                                # Convertir PIL a OpenCV para el procesador
                                 img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
-                                
-                                # Guardar temporal para el image_processor (puedes optimizar esto luego)
                                 temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
                                 cv2.imwrite(temp_path, img_cv)
                                 
-                                # LLAMADA AL PROCESADOR v2
                                 mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config, sensibilidad)
                                 
                                 if mapa is not None:
-                                    # Acumular datos
                                     all_maps.append({"id": h_id, "mapa": mapa.tolist()})
-                                    img_res_final = img_res # Usamos el último para la evidencia (puedes mejorar esto)
+                                    img_res_final = img_res
                                     t_missing += int(np.count_nonzero(mapa == 0))
                                     t_nodes += mapa.size
                                 else:
                                     st.error(f"❌ Error procesando Cabezal {h_id}: {msg}")
                                     break
                             
-                            # Si todo salió bien, guardar y sincronizar
                             if all_maps and img_res_final is not None:
-                                # Calcular salud total combinada
                                 salud_final = float(((t_nodes - t_missing) / t_nodes) * 100)
-                                
-                                # Guardar evidencia física (imagen resultante)
                                 img_pil_res = Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB))
                                 ruta_final = guardar_evidencia_fisica(img_pil_res, machine_selected_global)
-                                
-                                # --- GUARDAR EN POSTGRESQL (Sincronización Total) ---
-                                # --- AJUSTE EN LA LÓGICA DE GUARDADO ---
-                                exito_escritura = commit_db("""
+                                map_json_total = json.dumps(all_maps)
+
+                                # --- INTENTO DE ESCRITURA ---
+                                sql_insert = """
                                     INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
                                     VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
-                                """, {
+                                """
+                                params = {
                                     "m": machine_selected_global,
                                     "s": salud_final,
                                     "n": t_missing,
                                     "map": map_json_total,
                                     "e": ruta_final
-                                })
+                                }
                                 
-                                if exito_escritura:
-                                    st.success(f"✅ ¡{machine_selected_global} Actualizada y Sincronizada!")
+                                exito = commit_db(sql_insert, params)
+
+                                if exito:
+                                    st.session_state.recortes = {}
+                                    st.session_state.editando_manual = False
+                                    st.success(f"✅ ¡{machine_selected_global} Actualizada! Total: {salud_final:.1f}%")
                                     st.balloons()
                                     time.sleep(2)
                                     st.rerun()
                                 else:
-                                    # Si commit_db falló, el error ya se mostró arriba, pero evitamos el mensaje de éxito falso
-                                    st.error("❌ Los datos se procesaron pero NO se pudieron guardar en la base de datos.")
-                                
-                                # Limpiar estado y finalizar edición
-                                st.session_state.recortes = {}
-                                st.session_state.editando_manual = False # Reactivamos carrusel
-                                
-                                st.success(f"✅ ¡{machine_selected_global} Actualizada y Sincronizada! Total: {salud_final:.1f}%")
-                                st.balloons()
-                                time.sleep(2)
-                                st.rerun()
-            else:
-                st.info("Los recortes guardados aparecerán aquí.")
-
-    else:
-        # Si no hay archivo subido, aseguramos que el modo edición esté apagado
-        st.session_state.editando_manual = False
-        # Limpiamos recortes viejos si cambiamos de archivo
-        if st.session_state.recortes:
-            st.session_state.recortes = {}
+                                    # Si llega aquí, el error de SQL ya se mostró en commit_db
+                                    st.error("❌ Los datos se procesaron pero NO se pudieron guardar por error en la base de datos.")
 
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
