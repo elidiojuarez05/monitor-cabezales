@@ -443,49 +443,155 @@ with tab_planta:
         for j, m_name in enumerate(lista_maquinas[i : i + 2]):
             with cols[j]: render_machine_card(m_name, fecha_consulta, suffix="gral")
 
-# TAB 3: ANÁLISIS MANUAL Y CROPPER
+# =========================================================
+# TAB 3: ANÁLISIS MANUAL Y CROPPER (CORREGIDO PARA ROTACIÓN Y SINCRONIZACIÓN)
+# =========================================================
 with tab_analisis:
-    st.info("Sube una imagen y recorta los cabezales manualmente.")
+    st.info("Sube una imagen, rótala si es necesario y recorta los cabezales manualmente. "
+            "El refresco automático se pausará mientras editas.")
+    
+    # --- CONTROL DE INTERACCIÓN ---
+    # Usamos una variable en session_state para saber si estamos editando
+    if 'editando_manual' not in st.session_state:
+        st.session_state.editando_manual = False
+
     uploaded_file = st.file_uploader("Subir imagen del test", type=['jpg', 'png', 'jpeg'], key="up_manual")
+    
     if uploaded_file:
+        # Activamos el modo edición para pausar el carrusel
+        st.session_state.editando_manual = True
+        
+        # 1. CARGAR IMAGEN ORIGINAL
         img_raw = Image.open(uploaded_file)
+        
         col_edit, col_prev = st.columns([2, 1])
+        
         with col_edit:
-            grados = st.slider("Girar imagen", -180, 180, 0)
-            img_rotated = img_raw.rotate(grados, expand=True)
-            num_cabezales = st.number_input("Número de cabezales", min_value=1, value=2)
-            cabezal_actual = st.selectbox("Selecciona cabezal:", range(1, num_cabezales + 1))
-            img_cropped = st_cropper(img_rotated, realtime_update=False, box_color='#FF0000', aspect_ratio=None, key=f"crop_{cabezal_actual}")
-            if st.button(f"💾 Guardar Recorte {cabezal_actual}"):
+            st.subheader("1. Ajuste y Rotación")
+            
+            # --- CORRECCIÓN DE ROTACIÓN ---
+            # Agregamos el slider de grados
+            grados = st.slider("Girar imagen (grados)", -180, 180, 0, step=1, key="rotate_slider")
+            
+            # CRÍTICO: Usar expand=True para evitar el efecto "apachurrado"
+            # expand=True agranda el lienzo para que quepa la imagen rotada completa
+            img_rotated = img_raw.rotate(grados, expand=True, resample=Image.BICUBIC)
+            
+            # Mostrar la imagen rotada antes de recortar (opcional, para feedback)
+            # st.image(img_rotated, caption="Imagen Lista para Recortar", use_column_width=True)
+            
+            st.divider()
+            st.subheader("2. Recorte Manual")
+            
+            num_cabezales = st.number_input("Número de cabezales en la imagen", min_value=1, value=2, step=1)
+            
+            # Selector de cabezal actual para asignar el recorte
+            cabezal_actual = st.selectbox("Selecciona qué cabezal vas a recortar ahora:", range(1, num_cabezales + 1))
+            
+            st.caption(f"Dibuja el recuadro sobre el Cabezal {cabezal_actual} y haz clic en 'Guardar Recorte'")
+            
+            # --- CROPPER (Sobre la imagen ya rotada correctamente) ---
+            # Importante: realtime_update=False para que no sature la app al mover el cuadro
+            img_cropped = st_cropper(img_rotated, 
+                                    realtime_update=False, 
+                                    box_color='#FF0000', 
+                                    aspect_ratio=None, 
+                                    key=f"crop_canvas_{cabezal_actual}_{grados}") # Key dinámica para forzar refresco al rotar
+
+            if st.button(f"💾 Guardar Recorte del Cabezal {cabezal_actual}", type="primary"):
+                # Guardamos el recorte en el session_state usando el ID del cabezal
                 st.session_state.recortes[cabezal_actual] = img_cropped
-                st.success("Guardado temporalmente.")
+                st.toast(f"✅ Recorte del Cabezal {cabezal_actual} guardado temporalmente.")
+        
         with col_prev:
+            st.subheader("Vista Previa de Recortes")
+            
+            # Mostrar los recortes que ya se han guardado
             if st.session_state.recortes:
-                st.write("Recortes guardados:")
-                for h_id, img in st.session_state.recortes.items(): st.image(img, caption=f"Head {h_id}")
-            if st.button("🚀 INICIAR PROCESAMIENTO TOTAL", use_container_width=True):
-                if not st.session_state.recortes: st.error("Faltan recortes.")
-                else:
-                    config = MACHINE_CONFIGS[machine_selected_global]
-                    all_maps, t_missing, t_nodes = [], 0, 0
-                    img_res_final = None
-                    for h_id, img_c in st.session_state.recortes.items():
-                        temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
-                        cv2.imwrite(temp_path, cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR))
-                        mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config, sensibilidad)
-                        if mapa is not None:
-                            all_maps.append({"id": h_id, "mapa": mapa.tolist()})
-                            img_res_final, t_missing, t_nodes = img_res, t_missing + int(np.count_nonzero(mapa == 0)), t_nodes + mapa.size
-                    if all_maps and img_res_final is not None:
-                        salud_final = ((t_nodes - t_missing) / t_nodes) * 100
-                        ruta_final = guardar_evidencia_fisica(Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB)), machine_selected_global)
-                        
-                        save_test_result(machine_selected_global, salud_final, t_missing, all_maps, ruta_final)
-                        
-                        st.session_state.recortes = {}
-                        st.success("✅ Guardado en base de datos PostgreSQL.")
-                        time.sleep(1)
-                        st.rerun()
+                for h_id in sorted(st.session_state.recortes.keys()):
+                    img = st.session_state.recortes[h_id]
+                    st.image(img, caption=f"Cabezal {h_id} (Listo)", use_column_width=True)
+                
+                st.divider()
+                
+                # --- BOTÓN FINAL DE PROCESAMIENTO ---
+                if st.button("🚀 INICIAR PROCESAMIENTO TOTAL Y SINCRONIZAR", use_container_width=True, type="secondary"):
+                    # Verificamos que estén todos los recortes necesarios
+                    if len(st.session_state.recortes) < num_cabezales:
+                        st.error(f"❌ Faltan recortes. Has guardado {len(st.session_state.recortes)} de {num_cabezales} cabezales.")
+                    else:
+                        with st.spinner("Procesando matriz de nozzles..."):
+                            # Configuración de la máquina destino
+                            config = MACHINE_CONFIGS[machine_selected_global]
+                            all_maps = []
+                            t_missing = 0
+                            t_nodes = 0
+                            img_res_final = None
+                            
+                            # Procesar cada recorte individualmente
+                            for h_id in sorted(st.session_state.recortes.keys()):
+                                img_c = st.session_state.recortes[h_id]
+                                
+                                # Convertir PIL a OpenCV para el procesador
+                                img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
+                                
+                                # Guardar temporal para el image_processor (puedes optimizar esto luego)
+                                temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
+                                cv2.imwrite(temp_path, img_cv)
+                                
+                                # LLAMADA AL PROCESADOR v2
+                                mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config, sensibilidad)
+                                
+                                if mapa is not None:
+                                    # Acumular datos
+                                    all_maps.append({"id": h_id, "mapa": mapa.tolist()})
+                                    img_res_final = img_res # Usamos el último para la evidencia (puedes mejorar esto)
+                                    t_missing += int(np.count_nonzero(mapa == 0))
+                                    t_nodes += mapa.size
+                                else:
+                                    st.error(f"❌ Error procesando Cabezal {h_id}: {msg}")
+                                    break
+                            
+                            # Si todo salió bien, guardar y sincronizar
+                            if all_maps and img_res_final is not None:
+                                # Calcular salud total combinada
+                                salud_final = float(((t_nodes - t_missing) / t_nodes) * 100)
+                                
+                                # Guardar evidencia física (imagen resultante)
+                                img_pil_res = Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB))
+                                ruta_final = guardar_evidencia_fisica(img_pil_res, machine_selected_global)
+                                
+                                # --- GUARDAR EN POSTGRESQL (Sincronización Total) ---
+                                # Usamos la función save_test_result que ya definimos antes
+                                map_json_total = json.dumps(all_maps)
+                                commit_db("""
+                                    INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
+                                    VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
+                                """, {
+                                    "m": machine_selected_global,
+                                    "s": salud_final,
+                                    "n": t_missing,
+                                    "map": map_json_total,
+                                    "e": ruta_final
+                                })
+                                
+                                # Limpiar estado y finalizar edición
+                                st.session_state.recortes = {}
+                                st.session_state.editando_manual = False # Reactivamos carrusel
+                                
+                                st.success(f"✅ ¡{machine_selected_global} Actualizada y Sincronizada! Total: {salud_final:.1f}%")
+                                st.balloons()
+                                time.sleep(2)
+                                st.rerun()
+            else:
+                st.info("Los recortes guardados aparecerán aquí.")
+
+    else:
+        # Si no hay archivo subido, aseguramos que el modo edición esté apagado
+        st.session_state.editando_manual = False
+        # Limpiamos recortes viejos si cambiamos de archivo
+        if st.session_state.recortes:
+            st.session_state.recortes = {}
 
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
@@ -615,21 +721,34 @@ with tab_gestion:
             cd2.download_button("📉 DESCARGAR CSV", st.session_state.archivo_csv_listo, "Datos.csv", "text/csv", use_container_width=True)
 
 # =========================================================
-# MOTOR DE SINCRONIZACIÓN ÚNICO (VERSION ANTI-LOGOUT)
 # =========================================================
+# MOTOR DE SINCRONIZACIÓN ÚNICO (VERSION ANTI-LOGOUT Y ANTI-INTERRUPCIÓN)
+# =========================================================
+# Solo activamos el refresco si el usuario está logueado
 if st.session_state.authenticated:
+    # Definimos qué actividades bloquean el refresco para no interrumpir al usuario
+    # AÑADIMOS: st.session_state.get("editando_manual", False)
     interactuando = (
         st.session_state.get("bloquear_refresco", False) or 
         run_camera or 
         st.session_state.get("mostrar_descargas", False) or
-        uploaded_file is not None
+        st.session_state.get("editando_manual", False) # CRÍTICO: Pausa si está recortando manualmente
     )
 
     if not interactuando:
+        # Tiempo de espera (12 segundos)
         time.sleep(12) 
+        
+        # 1. Avanzar carrusel lógicamente
         num_maquinas = len(lista_maquinas)
         if num_maquinas > 0:
             st.session_state.indice_carrusel = (st.session_state.indice_carrusel + 2) % num_maquinas
+        
+        # 2. Forzar refresco manteniendo la sesión activa
         st.rerun()
     else:
-        st.sidebar.caption("⏸️ Actualización en pausa (Usuario activo)")
+        # Pequeño aviso visual opcional en el sidebar
+        st.sidebar.caption("⏸️ Actualización en pausa (Editando o Cámara activa)")   
+
+# Cerrar la conexión (opcional, st.connection lo maneja, pero es buena práctica)
+# db.close() # Si usabas SQLAlchemy, bórralo. Con st.connection no es necesario.
