@@ -99,6 +99,15 @@ def create_tables_if_not_exist():
     );
     """)
 
+
+    commit_db("""
+    CREATE TABLE IF NOT EXISTS estados_maquinas (
+        machine_name VARCHAR(50) PRIMARY KEY,
+        estado VARCHAR(50) NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
 create_tables_if_not_exist()
 
 # =========================================================
@@ -189,7 +198,8 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
             timestamp=res_test.iloc[0]['timestamp']
         )
 
-    estado_actual = st.session_state.estados_maquinas.get(m_name, "Operativa")
+    res_estado = query_db("SELECT estado FROM estados_maquinas WHERE machine_name = :m", {"m": m_name})
+    estado_actual = res_estado.iloc[0]['estado'] if not res_estado.empty else "Operativa"
     fecha_ultimo = last_test.timestamp.strftime('%d/%m/%Y %I:%M %p') if last_test else "Sin registros"
 
     opciones_estilo = {
@@ -321,11 +331,25 @@ with st.sidebar:
     st.divider()
     st.header("🛠️ Gestión de Equipos")
     maquina_a_configurar = st.selectbox("Seleccionar Máquina para Estado:", list(MACHINE_CONFIGS.keys()))
-    nuevo_est = st.selectbox("Definir estado:", ["Operativa", "Mantenimiento", "Falla Total", "Falla de Slots", "Falla de Tarjetas"], 
-                             index=["Operativa", "Mantenimiento", "Falla Total", "Falla de Slots", "Falla de Tarjetas"].index(st.session_state.estados_maquinas.get(maquina_a_configurar, "Operativa")))
+    
+    # Consultamos el estado actual para mostrarlo por defecto en el selectbox
+    res_est_actual = query_db("SELECT estado FROM estados_maquinas WHERE machine_name = :m", {"m": maquina_a_configurar})
+    est_defecto = res_est_actual.iloc[0]['estado'] if not res_est_actual.empty else "Operativa"
+    
+    nuevo_est = st.selectbox("Definir estado:", 
+                             ["Operativa", "Mantenimiento", "Falla Total", "Falla de Slots", "Falla de Tarjetas"], 
+                             index=["Operativa", "Mantenimiento", "Falla Total", "Falla de Slots", "Falla de Tarjetas"].index(est_defecto))
+    
     if st.button("🔄 Actualizar Estado"):
-        st.session_state.estados_maquinas[maquina_a_configurar] = nuevo_est
-        st.success(f"{maquina_a_configurar} -> {nuevo_est}")
+        # Guardamos el cambio directamente en PostgreSQL
+        commit_db("""
+            INSERT INTO estados_maquinas (machine_name, estado, updated_at)
+            VALUES (:m, :e, CURRENT_TIMESTAMP)
+            ON CONFLICT (machine_name) 
+            DO UPDATE SET estado = EXCLUDED.estado, updated_at = CURRENT_TIMESTAMP;
+        """, {"m": maquina_a_configurar, "e": nuevo_est})
+        
+        st.success(f"✅ Estado de {maquina_a_configurar} guardado en la red como {nuevo_est}")
         time.sleep(1)
         st.rerun()
 
