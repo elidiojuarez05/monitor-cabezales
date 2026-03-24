@@ -17,58 +17,38 @@ from sqlalchemy import text
 # 1. CONFIGURACIÓN DE PÁGINA (DEBE SER EL PRIMER COMANDO)
 # =========================================================
 st.set_page_config(page_title="Print Head Monitor", layout="wide")
+# --- ESTILO VISUAL INDUSTRIAL ---
 st.markdown("""
     <style>
-        /* Fondo principal de la app */
+        /* Fondo de la aplicación principal */
         .stApp {
-            background-color: #0d1b2a; /* Azul noche profundo */
-            color: #ffffff;
+            background-color: #0d1b2a;
+            color: #e0e1dd;
         }
 
-        /* Estilo de los Tabs (Pestañas) */
+        /* Color de los Tabs (Pestañas) */
         .stTabs [data-baseweb="tab-list"] {
-            background-color: #1c2541;
+            background-color: #1b263b;
             border-radius: 10px 10px 0 0;
-            padding: 10px;
-        }
-        
-        .stTabs [data-baseweb="tab"] {
-            color: #ffffff !important;
+            padding: 5px;
         }
 
-        /* Estilo de las tarjetas de las máquinas (Métricas) */
-        [data-testid="stMetricValue"] {
-            background-color: #1c2541;
-            border: 1px solid #3a506b;
+        /* Color de las tarjetas de máquinas */
+        div[data-testid="stMetricValue"] {
+            background-color: #1b263b;
             border-radius: 10px;
-            padding: 15px !important;
-            color: #5bc0be !important; /* Azul cyan para los números */
+            padding: 10px;
+            border: 1px solid #415a77;
         }
 
-        /* Estilo para los títulos de las secciones */
+        /* Texto de los headers */
         h1, h2, h3 {
-            color: #5bc0be !important;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #778da9 !important;
         }
 
-        /* Sidebar (Panel lateral) */
+        /* Sidebar con tono más oscuro */
         [data-testid="stSidebar"] {
             background-color: #0b132b;
-            border-right: 1px solid #3a506b;
-        }
-
-        /* Botones principales */
-        .stButton>button {
-            background-color: #3a506b;
-            color: white;
-            border-radius: 5px;
-            border: none;
-            transition: 0.3s;
-        }
-
-        .stButton>button:hover {
-            background-color: #5bc0be;
-            color: #0b132b;
         }
     </style>
 """, unsafe_allow_html=True)
