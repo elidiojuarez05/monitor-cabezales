@@ -110,29 +110,33 @@ def query_db(sql_string, params=None):
     try:
         with conn.session as session:
             result = session.execute(text(sql_string), params or {})
-            # Extraemos los nombres de las columnas y las filas explícitamente
             columnas = list(result.keys())
             filas = result.fetchall()
             
             if filas:
                 df = pd.DataFrame(filas, columns=columnas)
-                df.columns = [c.lower() for c in df.columns] # Todo a minúsculas para evitar errores
+                df.columns = [c.lower() for c in df.columns]
                 return df
         return pd.DataFrame()
     except Exception as e:
+        # Hacemos visible el error en lugar de ocultarlo
+        st.sidebar.error(f"⚠️ Error de conexión DB: {e}") 
         return pd.DataFrame()
 
 def check_password(u, p):
-    res = query_db("SELECT * FROM usuarios WHERE username = :u", {"u": u})
+    if not u or not p: return None
+
+    # Forzamos la búsqueda en minúsculas para evitar errores de tipeo (LOWER)
+    res = query_db("SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u)", {"u": u})
+    
     if not res.empty:
-        # CRÍTICO: Convertimos la fila de Pandas a un diccionario puro de Python
         fila = res.iloc[0].to_dict()
-        
         db_pass = str(fila.get('password', '')).strip()
         input_hash = hashlib.sha256(p.encode()).hexdigest()
         
         if db_pass == input_hash or db_pass == p:
-            return fila # Ahora estamos 100% seguros de que devuelve un diccionario
+            return fila
+            
     return None
 
 def commit_db(sql_string, params=None):
@@ -332,6 +336,8 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
 # =========================================================
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
+    st.session_state.username = ""  # <-- Esto evita el error de NoneType
+    st.session_state.role = "operator"
 
 if not st.session_state.authenticated:
     st.title("🔐 Acceso al Sistema")
