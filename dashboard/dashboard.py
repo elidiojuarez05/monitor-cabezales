@@ -330,27 +330,27 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
         """, unsafe_allow_html=True)
 
 # =========================================================
-# 6. LÓGICA DE AUTENTICACIÓN (LOGIN)
+# 4. LÓGICA DE SESIÓN Y LOGIN (CORREGIDO)
 # =========================================================
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+# SI NO ESTÁ AUTENTICADO: Muestra Login y DETIENE todo lo demás
 if not st.session_state.authenticated:
     st.title("🔐 Acceso al Sistema")
+    u = st.text_input("Usuario", key="login_user")
+    p = st.text_input("Contraseña", type="password", key="login_pass")
     
-    user_input = st.text_input("Usuario")
-    pass_input = st.text_input("Contraseña", type="password")
-    
-    if st.button("Entrar", type="primary"):
-        user = check_password(user_input, pass_input)
-        if user:
-            st.session_state.update({
-                "authenticated": True, 
-                "user_role": user.role, 
-                "username": user.username
-            })
-            st.success(f"Bienvenido {user.username}")
+    if st.button("Ingresar", key="btn_login_main"):
+        user_data = check_password(u, p)
+        if user_data is not None:
+            st.session_state.authenticated = True
+            st.session_state.username = user_data['username']
+            st.session_state.role = user_data['role']
             st.rerun()
         else:
-            st.error("Usuario o contraseña incorrectos")
-            
+            st.error("Credenciales incorrectas")
+    
     st.stop()
 
 # =========================================================
@@ -450,8 +450,21 @@ if run_camera:
     foto = st.camera_input("Capturar Test", key="cam_main")
 
 if foto:
-    st.session_state.bloquear_refresco = True
-    contenedor_estado = st.empty()
+    # 1. Leer imagen
+    file_bytes = np.frombuffer(foto.getvalue(), np.uint8)
+    img_full = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    
+    # 2. REDIMENSIONAR (Para evitar el error de memoria en celular)
+    # Bajamos la resolución a un máximo de 1280px de ancho
+    h, w = img_full.shape[:2]
+    if w > 1280:
+        scale = 1280 / w
+        img_full = cv2.resize(img_full, (0,0), fx=scale, fy=scale)
+    
+    # 3. Guardar temporal y procesar...
+    temp_p = os.path.join(BASE_DIR, "temp_celular.jpg")
+    cv2.imwrite(temp_p, img_full)
+    # ... sigue tu llamada a image_processor.process_test_image_v2 ...
     
     with st.spinner("🔍 Optimizando imagen para análisis..."):
         img_bytes = foto.getvalue()
@@ -796,24 +809,23 @@ with tab_gestion:
 # MOTOR DE SINCRONIZACIÓN ÚNICO (VERSION ANTI-LOGOUT Y ANTI-INTERRUPCIÓN)
 # =========================================================
 # Solo activamos el refresco si el usuario está logueado
+# Al final de tu archivo
 if st.session_state.authenticated:
-    # Definimos qué actividades bloquean el refresco para no interrumpir al usuario
-    # AÑADIMOS: st.session_state.get("editando_manual", False)
-    interactuando = (
-        st.session_state.get("bloquear_refresco", False) or 
-        run_camera or 
-        st.session_state.get("mostrar_descargas", False) or
-        st.session_state.get("editando_manual", False) # CRÍTICO: Pausa si está recortando manualmente
+    # Si el usuario termina de editar, debemos limpiar el file_uploader manualmente o con una bandera
+    # Para que el carrusel sepa que ya no hay nada "subido"
+    
+    esta_editando = (
+        st.session_state.get("editando_manual", False) or 
+        st.session_state.get("bloquear_refresco", False)
     )
 
-    if interactuando:
-        st.sidebar.warning("⏸️ Modo edición activo.")
-        
-        # Botón para forzar el reinicio si algo sale mal
-        if st.sidebar.button("Reanudar Carrusel Manualmente"):
-            # Forzamos todas las variables de control a False
-            st.session_state.interactuando = False
-            if 'editando' in st.session_state:
-                st.session_state.editando = False
-            st.rerun()
+    if not esta_editando:
+        time.sleep(12)
+        # Avanzar carrusel
+        num_maquinas = len(lista_maquinas)
+        if num_maquinas > 0:
+            st.session_state.indice_carrusel = (st.session_state.indice_carrusel + 2) % num_maquinas
+        st.rerun()
+    else:
+        st.sidebar.caption("⏸️ Carrusel en pausa")
 
