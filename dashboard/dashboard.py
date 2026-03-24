@@ -783,26 +783,14 @@ if st.session_state.authenticated:
         st.session_state.get("editando_manual", False) # CRÍTICO: Pausa si está recortando manualmente
     )
 
-    if not interactuando:
-        # 1. Tiempo de espera (12 segundos)
-        time.sleep(12) 
-        
-        # 2. Avanzar carrusel lógicamente
-        num_maquinas = len(lista_maquinas)
-        if num_maquinas > 0:
-            # Usamos .get para evitar errores si la llave no existe
-            actual = st.session_state.get('indice_carrusel', 0)
-            st.session_state.indice_carrusel = (actual + 2) % num_maquinas
-        
-        # 3. Forzar refresco
+    if interactuando:
+    st.sidebar.warning("⏸️ Modo edición activo.")
+    
+    # Botón para forzar el reinicio si algo sale mal
+    if st.sidebar.button("Reanudar Carrusel Manualmente"):
+        # Forzamos todas las variables de control a False
+        st.session_state.interactuando = False
+        if 'editando' in st.session_state:
+            st.session_state.editando = False
         st.rerun()
-    else:
-        # Si estamos interactuando, mostramos el mensaje
-        st.sidebar.warning("⏸️ Modo edición activo. El carrusel se reanudará cuando termines.")
-        
-        # OPCIONAL: Botón para forzar el reinicio del carrusel manualmente
-        if st.sidebar.button("▶️ Reanudar Carrusel Ahora"):
-            # Aquí forzamos el estado a False manualmente si es necesario
-            # st.session_state.editando = False 
-            st.rerun()   
 
