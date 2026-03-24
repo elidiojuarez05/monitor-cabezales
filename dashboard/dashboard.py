@@ -21,7 +21,7 @@ st.markdown("""
     <style>
         /* Fondo principal de la app */
         .stApp {
-            background-color: #0b132b; /* Azul noche profundo */
+            background-color: #0d1b2a; /* Azul noche profundo */
             color: #ffffff;
         }
 
