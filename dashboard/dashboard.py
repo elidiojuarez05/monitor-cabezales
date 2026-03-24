@@ -329,7 +329,7 @@ if not st.session_state.authenticated:
         else:
             st.error("Usuario o contraseña incorrectos")
             
-st.stop()
+        st.stop()
 
 # =========================================================
 # 7. INTERFAZ PRINCIPAL (POST-LOGIN)
