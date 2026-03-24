@@ -61,20 +61,19 @@ except Exception:
     
 
 def query_db(sql_string, params=None):
-    """Consulta segura que libera la conexión inmediatamente"""
     try:
-        # Usamos el motor de sqlalchemy contenido en st.connection
         with conn.session as session:
             result = session.execute(text(sql_string), params or {})
-            # Convertimos a DataFrame y cerramos sesión implícitamente al salir del 'with'
-            df = pd.DataFrame(result.fetchall(), columns=result.keys())
+            df = pd.DataFrame(result.fetchall())
+            if not df.empty:
+                df.columns = result.keys()
+                # Normalizar columnas a minúsculas
+                df.columns = [c.lower() for c in df.columns]
             return df
     except Exception as e:
-        st.error(f"Error SQL: {e}")
         return pd.DataFrame()
 
 def commit_db(sql_string, params=None):
-    """Ejecuta escritura y hace commit forzando el cierre de sesión"""
     try:
         with conn.session as session:
             session.execute(text(sql_string), params or {})
@@ -84,29 +83,33 @@ def commit_db(sql_string, params=None):
         st.error(f"Error de escritura: {e}")
         return False
 
-# Inicializar Tablas si no existen
+# --- PARCHE: Asegurar que las columnas existen en Postgres ---
+commit_db("ALTER TABLE test_results ADD COLUMN IF NOT EXISTS health_map TEXT;")
+commit_db("ALTER TABLE test_results ADD COLUMN IF NOT EXISTS missing_nodes INTEGER;")
+
 def create_tables_if_not_exist():
-    commit_db("""
-    CREATE TABLE IF NOT EXISTS usuarios (
-        id SERIAL PRIMARY KEY,
-        username VARCHAR(50) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        role VARCHAR(20) NOT NULL
-    );
-    """)
+    # Tabla Resultados
     commit_db("""
     CREATE TABLE IF NOT EXISTS test_results (
         id SERIAL PRIMARY KEY,
-        machine_name VARCHAR(50) NOT NULL,
-        health_score FLOAT NOT NULL,
-        missing_nodes INTEGER NOT NULL,
+        machine_name VARCHAR(100),
+        health_score FLOAT,
+        missing_nodes INTEGER,
         health_map TEXT,
         evidence_path TEXT,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
-
-
+    # Tabla Usuarios
+    commit_db("""
+    CREATE TABLE IF NOT EXISTS usuarios (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE,
+        password TEXT,
+        role VARCHAR(20)
+    );
+    """)
+    # Tabla Estados Sincronizados
     commit_db("""
     CREATE TABLE IF NOT EXISTS estados_maquinas (
         machine_name VARCHAR(50) PRIMARY KEY,
@@ -114,6 +117,12 @@ def create_tables_if_not_exist():
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    
+    # Crear admin por defecto si no hay usuarios
+    res = query_db("SELECT id FROM usuarios LIMIT 1")
+    if res.empty:
+        h = hashlib.sha256("admin123".encode()).hexdigest()
+        commit_db("INSERT INTO usuarios (username, password, role) VALUES ('admin', :p, 'admin')", {"p": h})
 
 create_tables_if_not_exist()
 
