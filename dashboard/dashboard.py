@@ -14,7 +14,7 @@ import base64
 from sqlalchemy import text
 
 # =========================================================
-# 1. CONFIGURACIÓN DE PÁGINA (DEBE SER EL PRIMER COMANDO)
+# 1. CONFIGURACIÓN DE PÁGINA (PRIMER EL PRIMER COMANDO)
 # =========================================================
 st.set_page_config(page_title="Print Head Monitor", layout="wide")
 # --- ESTILO VISUAL INDUSTRIAL ---
@@ -75,7 +75,7 @@ for path in [EVIDENCIAS_PATH, REPORTES_PATH]:
 try:
     import image_processor
     from config import MACHINE_CONFIGS
-    import crud # Mantenemos CRUD solo para la función 'generate_pdf_report'
+    import crud 
 except ImportError as e:
     st.error(f"Error crítico de importación: {e}")
     st.stop()
@@ -84,7 +84,6 @@ except ImportError as e:
 conn = st.connection("postgresql", type="sql")
 # --- PARCHE DE EMERGENCIA PARA LA BASE DE DATOS ---
 # Este bloque detecta qué columnas faltan y las crea automáticamente
-# --- PARCHE DE SEGURIDAD MEJORADO ---
 def patch_database():
     # Definimos cada columna con su tipo
     columnas = {
@@ -102,8 +101,7 @@ def patch_database():
         except Exception:
             # Si ya existe (Error 42701), simplemente pasamos a la siguiente
             pass
-
-# Ejecutar justo después de definir 'conn'
+            
 patch_database()
     
 
@@ -423,7 +421,7 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.rerun()
 
-# --- LÓGICA DE CÁMARA (MODO FOTO - CORREGIDO) ---
+# --- LÓGICA DE CÁMARA (MODO FOTO ) ---
 foto = None
 if run_camera:
     foto = st.camera_input("Capturar Test", key="cam_main")
@@ -509,7 +507,7 @@ with tab_planta:
             with cols[j]: render_machine_card(m_name, fecha_consulta, suffix="gral")
 
 # =========================================================
-# TAB 3: ANÁLISIS MANUAL Y CROPPER (CORREGIDO PARA ROTACIÓN Y SINCRONIZACIÓN)
+# TAB 3: ANÁLISIS MANUAL Y CROPPER (ROTACIÓN Y SINCRONIZACIÓN)
 # =========================================================
 with tab_analisis:
     st.info("Sube una imagen, rótala si es necesario y recorta los cabezales manualmente. "
@@ -534,16 +532,14 @@ with tab_analisis:
         with col_edit:
             st.subheader("1. Ajuste y Rotación")
             
-            # --- CORRECCIÓN DE ROTACIÓN ---
+            # ---ROTACIÓN ---
             # Agregamos el slider de grados
             grados = st.slider("Girar imagen (grados)", -180, 180, 0, step=1, key="rotate_slider")
             
-            # CRÍTICO: Usar expand=True para evitar el efecto "apachurrado"
             # expand=True agranda el lienzo para que quepa la imagen rotada completa
             img_rotated = img_raw.rotate(grados, expand=True, resample=Image.BICUBIC)
             
             # Mostrar la imagen rotada antes de recortar (opcional, para feedback)
-            # st.image(img_rotated, caption="Imagen Lista para Recortar", use_column_width=True)
             
             st.divider()
             st.subheader("2. Recorte Manual")
@@ -590,7 +586,7 @@ with tab_analisis:
                         t_missing = 0
                         t_nodes = 0
                         ruta_final = ""
-                        salud_final = 0.0  # <-- Aquí nace la variable para evitar el NameError
+                        salud_final = 0.0 
 
                         with st.spinner("Procesando matriz de nozzles..."):
                             config = MACHINE_CONFIGS[machine_selected_global]
@@ -658,7 +654,6 @@ with tab_gestion:
         st.header("🛠️ Panel de Control Administrativo")
         
         # --- KPI GLOBAL ---
-        # --- KPI GLOBAL (CORREGIDO PARA POSTGRESQL) ---
         st.subheader("📈 Rendimiento General (Últimos 7 días)")
         
         # Definir fechas
@@ -775,7 +770,6 @@ with tab_gestion:
             cd2.download_button("📉 DESCARGAR CSV", st.session_state.archivo_csv_listo, "Datos.csv", "text/csv", use_container_width=True)
 
 # =========================================================
-# =========================================================
 # MOTOR DE SINCRONIZACIÓN ÚNICO (VERSION ANTI-LOGOUT Y ANTI-INTERRUPCIÓN)
 # =========================================================
 # Solo activamos el refresco si el usuario está logueado
@@ -804,5 +798,3 @@ if st.session_state.authenticated:
         # Pequeño aviso visual opcional en el sidebar
         st.sidebar.caption("⏸️ Actualización en pausa (Editando o Cámara activa)")   
 
-# Cerrar la conexión (opcional, st.connection lo maneja, pero es buena práctica)
-# db.close() # Si usabas SQLAlchemy, bórralo. Con st.connection no es necesario.
