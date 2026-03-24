@@ -106,39 +106,34 @@ except ImportError as e:
 conn = st.connection("postgresql", type="sql")
 # --- PARCHE DE EMERGENCIA PARA LA BASE DE DATOS ---
 # Este bloque detecta qué columnas faltan y las crea automáticamente
-def patch_database():
-    # Definimos cada columna con su tipo
-    columnas = {
-        "health_map": "TEXT",
-        "missing_nodes": "INTEGER",
-        "evidence_path": "TEXT"
-    }
-    
-    for nombre_col, tipo_col in columnas.items():
-        try:
-            # Ejecutamos cada una por separado en su propio bloque
-            with conn.session as session:
-                session.execute(text(f"ALTER TABLE test_results ADD COLUMN IF NOT EXISTS {nombre_col} {tipo_col};"))
-                session.commit()
-        except Exception:
-            # Si ya existe (Error 42701), simplemente pasamos a la siguiente
-            pass
-            
-patch_database()
-    
-
 def query_db(sql_string, params=None):
     try:
         with conn.session as session:
             result = session.execute(text(sql_string), params or {})
-            df = pd.DataFrame(result.fetchall())
-            if not df.empty:
-                df.columns = result.keys()
-                # Normalizar columnas a minúsculas
-                df.columns = [c.lower() for c in df.columns]
-            return df
+            # Extraemos los nombres de las columnas y las filas explícitamente
+            columnas = list(result.keys())
+            filas = result.fetchall()
+            
+            if filas:
+                df = pd.DataFrame(filas, columns=columnas)
+                df.columns = [c.lower() for c in df.columns] # Todo a minúsculas para evitar errores
+                return df
+        return pd.DataFrame()
     except Exception as e:
         return pd.DataFrame()
+
+def check_password(u, p):
+    res = query_db("SELECT * FROM usuarios WHERE username = :u", {"u": u})
+    if not res.empty:
+        # CRÍTICO: Convertimos la fila de Pandas a un diccionario puro de Python
+        fila = res.iloc[0].to_dict()
+        
+        db_pass = str(fila.get('password', '')).strip()
+        input_hash = hashlib.sha256(p.encode()).hexdigest()
+        
+        if db_pass == input_hash or db_pass == p:
+            return fila # Ahora estamos 100% seguros de que devuelve un diccionario
+    return None
 
 def commit_db(sql_string, params=None):
     try:
@@ -332,10 +327,12 @@ def render_machine_card(m_name, fecha_consulta, suffix=""):
 # =========================================================
 # 4. LÓGICA DE SESIÓN Y LOGIN (CORREGIDO)
 # =========================================================
+# =========================================================
+# LÓGICA DE SESIÓN Y LOGIN
+# =========================================================
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
-# SI NO ESTÁ AUTENTICADO: Muestra Login y DETIENE todo lo demás
 if not st.session_state.authenticated:
     st.title("🔐 Acceso al Sistema")
     u = st.text_input("Usuario", key="login_user")
@@ -343,15 +340,18 @@ if not st.session_state.authenticated:
     
     if st.button("Ingresar", key="btn_login_main"):
         user_data = check_password(u, p)
-        if user_data is not None:
+        
+        # Verificación blindada: Nos aseguramos de que sea un diccionario
+        if isinstance(user_data, dict):
             st.session_state.authenticated = True
-            st.session_state.username = user_data['username']
-            st.session_state.role = user_data['role']
+            # Usamos .get() para evitar errores si la columna no existe
+            st.session_state.username = user_data.get('username', u) 
+            st.session_state.role = user_data.get('role', 'operator')
             st.rerun()
         else:
-            st.error("Credenciales incorrectas")
+            st.error("❌ Usuario o contraseña incorrectos.")
     
-    st.stop()
+    st.stop() # El muro que evita que se cargue el dashboard sin acceso
 
 # =========================================================
 # 7. INTERFAZ PRINCIPAL (POST-LOGIN)
