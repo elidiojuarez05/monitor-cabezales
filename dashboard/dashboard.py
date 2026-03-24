@@ -52,12 +52,20 @@ except ImportError as e:
 
 # --- CONEXIÓN NATIVA A POSTGRESQL ---
 conn = st.connection("postgresql", type="sql")
+# --- PARCHE DE EMERGENCIA PARA LA BASE DE DATOS ---
+# Este bloque detecta qué columnas faltan y las crea automáticamente
 try:
-    # Intentamos añadir la columna por si no existe
-    commit_db("ALTER TABLE test_results ADD COLUMN IF NOT EXISTS health_map TEXT;")
-except Exception:
-    # Si ya existe, simplemente ignoramos el error
-    pass
+    columnas_necesarias = {
+        "health_map": "TEXT",
+        "missing_nodes": "INTEGER",
+        "evidence_path": "TEXT"  # <--- ESTA ES LA QUE ESTÁ CAUSANDO EL ERROR AHORA
+    }
+    
+    for col, tipo in columnas_necesarias.items():
+        commit_db(f"ALTER TABLE test_results ADD COLUMN IF NOT EXISTS {col} {tipo};")
+except Exception as e:
+    # Si hay un error aquí, lo imprimimos para saber qué pasa
+    st.sidebar.error(f"Error actualizando DB: {e}")
     
 
 def query_db(sql_string, params=None):
@@ -578,9 +586,8 @@ with tab_analisis:
                                 ruta_final = guardar_evidencia_fisica(img_pil_res, machine_selected_global)
                                 
                                 # --- GUARDAR EN POSTGRESQL (Sincronización Total) ---
-                                # Usamos la función save_test_result que ya definimos antes
-                                map_json_total = json.dumps(all_maps)
-                                commit_db("""
+                                # --- AJUSTE EN LA LÓGICA DE GUARDADO ---
+                                exito_escritura = commit_db("""
                                     INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
                                     VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
                                 """, {
@@ -590,6 +597,15 @@ with tab_analisis:
                                     "map": map_json_total,
                                     "e": ruta_final
                                 })
+                                
+                                if exito_escritura:
+                                    st.success(f"✅ ¡{machine_selected_global} Actualizada y Sincronizada!")
+                                    st.balloons()
+                                    time.sleep(2)
+                                    st.rerun()
+                                else:
+                                    # Si commit_db falló, el error ya se mostró arriba, pero evitamos el mensaje de éxito falso
+                                    st.error("❌ Los datos se procesaron pero NO se pudieron guardar en la base de datos.")
                                 
                                 # Limpiar estado y finalizar edición
                                 st.session_state.recortes = {}
