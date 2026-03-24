@@ -17,6 +17,40 @@ from sqlalchemy import text
 # 1. CONFIGURACIÓN DE PÁGINA (DEBE SER EL PRIMER COMANDO)
 # =========================================================
 st.set_page_config(page_title="Print Head Monitor", layout="wide")
+st.markdown("""
+    <style>
+        /* Fondo de la aplicación principal */
+        .stApp {
+            background-color: #0d1b2a;
+            color: #e0e1dd;
+        }
+
+        /* Color de los Tabs (Pestañas) */
+        .stTabs [data-baseweb="tab-list"] {
+            background-color: #1b263b;
+            border-radius: 10px 10px 0 0;
+            padding: 5px;
+        }
+
+        /* Color de las tarjetas de máquinas */
+        div[data-testid="stMetricValue"] {
+            background-color: #1b263b;
+            border-radius: 10px;
+            padding: 10px;
+            border: 1px solid #415a77;
+        }
+
+        /* Texto de los headers */
+        h1, h2, h3 {
+            color: #778da9 !important;
+        }
+
+        /* Sidebar con tono más oscuro */
+        [data-testid="stSidebar"] {
+            background-color: #0b132b;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # =========================================================
 # 2. CONFIGURACIÓN DE RUTAS Y PATHS
@@ -455,8 +489,10 @@ if foto:
 
 # --- TABS PRINCIPALES ---
 st.divider()
+hora_ajustada = datetime.now() - timedelta(hours=6)
+fecha_mostrar = hora_ajustada.strftime('%d/%m/%Y')
 es_hoy = (fecha_consulta == datetime.now().date())
-st.subheader(f"📊 Monitoreo en Tiempo Real ({fecha_consulta.strftime('%d/%m/%Y')})" if es_hoy else f"📅 Historial de Planta: {fecha_consulta.strftime('%d/%m/%Y')}")
+st.subheader(f"📊 Monitoreo en Tiempo Real ({fecha_mostrar})" if es_hoy else f"📅 Historial de Planta: {fecha_consulta.strftime('%d/%m/%Y')}")
 
 tab_carrusel, tab_planta, tab_analisis, tab_gestion = st.tabs(["🔄 Modo Carrusel", "🏬 Vista General", "✂️ Análisis Manual", "⚙️ Gestión y Reportes"])
 
