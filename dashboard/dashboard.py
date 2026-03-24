@@ -361,68 +361,63 @@ with st.sidebar:
         st.rerun()
 
 # --- LÓGICA DE CÁMARA (MODO FOTO - CORREGIDO) ---
-foto = st.camera_input("Capturar Test", key="cam_main")
+foto = None
+if run_camera:
+    foto = st.camera_input("Capturar Test", key="cam_main")
 
 if foto:
     st.session_state.bloquear_refresco = True
+    contenedor_estado = st.empty()
     
-    with st.spinner("🔄 Procesando y Sincronizando..."):
-        # 1. LEER Y COMPRIMIR (Para evitar errores de memoria en móvil)
-        file_bytes = np.frombuffer(foto.getvalue(), np.uint8)
-        img_full = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    with st.spinner("🔍 Optimizando imagen para análisis..."):
+        img_bytes = foto.getvalue()
+        res = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
         
-        # Redimensionamos si es muy grande (máximo 1280px de ancho)
-        height, width = img_full.shape[:2]
-        if width > 1280:
-            scale = 1280 / width
-            img_full = cv2.resize(img_full, (0,0), fx=scale, fy=scale)
+        if res is not None:
+            try:
+                if zoom_level > 0:
+                    h, w = res.shape[:2]
+                    m_h, m_w = int(h * (zoom_level / 200)), int(w * (zoom_level / 200))
+                    res = res[m_h:h-m_h, m_w:w-m_w]
 
-        # 2. GUARDAR TEMPORALMENTE
-        temp_p = os.path.join(BASE_DIR, "temp_capture.jpg")
-        cv2.imwrite(temp_p, img_full)
-        
-        try:
-            config = MACHINE_CONFIGS[machine_selected_global]
-            # Llamada al procesador
-            mapa, img_res, msg = image_processor.process_test_image_v2(temp_p, config, sensibilidad)
-            
-            if mapa is not None:
-                # 3. CÁLCULO DE RESULTADOS
-                salud = float((np.sum(mapa) / mapa.size) * 100)
-                fallas = int(np.count_nonzero(mapa == 0))
+                gray = cv2.cvtColor(res, cv2.COLOR_BGR2GRAY)
+                edged = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 50, 150)
+                cnts, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 
-                # 4. GUARDAR EVIDENCIA FÍSICA
-                img_pil = Image.fromarray(cv2.cvtColor(img_res, cv2.COLOR_BGR2RGB))
-                ruta_evidencia = guardar_evidencia_fisica(img_pil, machine_selected_global)
-                
-                # 5. ¡CRÍTICO! ESCRIBIR EN POSTGRESQL PARA SINCRONIZAR
-                # Esto es lo que permite que el monitor de la oficina vea el cambio
-                map_json = json.dumps(mapa.tolist())
-                exito = commit_db("""
-                    INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
-                    VALUES (:m, :s, :n, :map, :e, :t)
-                """, {
-                    "m": machine_selected_global, 
-                    "s": salud, 
-                    "n": fallas, 
-                    "map": map_json, 
-                    "e": ruta_evidencia, 
-                    "t": datetime.now()
-                })
+                if cnts:
+                    c = max(cnts, key=cv2.contourArea)
+                    if cv2.contourArea(c) > 5000:
+                        x, y, w, h = cv2.boundingRect(c)
+                        res = res[y:y+h, x:x+w]
+                        st.toast("🎯 Test detectado y centrado")
 
-                if exito:
-                    st.success(f"✅ Sincronizado: {machine_selected_global} al {salud:.1f}%")
+                temp_p = os.path.join(BASE_DIR, "temp_capture.jpg")
+                cv2.imwrite(temp_p, res)
+                
+                config = MACHINE_CONFIGS[machine_selected_global]
+                mapa, img_res, msg = image_processor.process_test_image_v2(temp_p, config, sensibilidad)
+                
+                if mapa is not None:
+                    salud = (np.sum(mapa) / mapa.size) * 100
+                    fallas = int(np.count_nonzero(mapa == 0))
+                    img_pil = Image.fromarray(cv2.cvtColor(img_res, cv2.COLOR_BGR2RGB))
+                    
+                    ruta_evidencia = guardar_evidencia_fisica(img_pil, machine_selected_global)
+                    
+                    save_test_result(machine_selected_global, salud, fallas, mapa.tolist(), ruta_evidencia)
+                    
+                    contenedor_estado.success(f"✅ ¡{machine_selected_global} Actualizada! ({salud:.1f}%)")
                     st.balloons()
-                    time.sleep(2)
+                    
                     st.session_state.bloquear_refresco = False
-                    st.rerun() # Esto refresca la base de datos para todos
-                else:
-                    st.error("❌ Error al sincronizar con la base de datos.")
-            else:
-                st.error(f"❌ No se detectó el test: {msg}")
-
-        except Exception as e:
-            st.error(f"❌ Error crítico en el procesamiento: {str(e)}")
+                    time.sleep(2)
+                    st.rerun()
+                    
+            except Exception as e:
+                st.error(f"❌ La imagen estaba borrosa o la cámara falló ({e}). Intenta tomar la foto de nuevo.")
+                st.session_state.bloquear_refresco = False
+        else:
+            st.warning("⚠️ Esperando señal de la cámara...")
             st.session_state.bloquear_refresco = False
 
 # --- TABS PRINCIPALES ---
