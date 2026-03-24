@@ -21,8 +21,8 @@ st.markdown("""
     <style>
         /* Fondo de la aplicación principal */
         .stApp {
-            background-color:#003366;
-            color: #e0e1dd;
+            background-color:#F4F7F6;
+            color: transparent;
         }
 
         /* Color de los Tabs (Pestañas) */
