@@ -6,10 +6,10 @@ MACHINE_CONFIGS = {
     "DURST P10 PLUS": {"cols": 32, "rows": 460, "x_start": 1, "x_end": 302},
     "FAVUTEK ": {"cols": 4, "rows": 5, "x_start": 20, "x_end": 800},
     "MIMAKI": {"cols": 4, "rows": 1, "x_start": 35, "x_end": 612},
-    "EPSON1": {"cols": 16, "rows": 4, "x_start": 20, "x_end": 800},
+    "EPSON1": {"cols": 10, "rows": 1, "x_start": 20, "x_end": 800},
     "EPSON2": {"cols": 16, "rows": 4, "x_start": 20, "x_end": 800},
     "POLAROID": {"cols": 12, "rows": 160, "x_start": 20, "x_end": 800},
     "GRANDO": {"cols": 32, "rows": 137, "x_start": 1, "x_end": 32},
     
-    # Agrega las 12 máquinas aquí con sus parámetros específicos
+    # Agregar  máquinas  con sus parámetros específicos
 }
