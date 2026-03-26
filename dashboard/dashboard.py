@@ -12,6 +12,7 @@ import time
 import json
 import base64
 from sqlalchemy import text
+from config import MACHINE_CONFIGS
 
 # =========================================================
 # 1. CONFIGURACIÓN DE PÁGINA (PRIMER EL PRIMER COMANDO)
@@ -592,26 +593,23 @@ with tab_analisis:
                         t_nodes = 0
                         
                         with st.spinner("Procesando matriz de nozzles..."):
-                            config_limpia = {
-                                "cols": config_temp['cols'], 
-                                "rows": config_temp['rows'],
-                                "crop_rect": None  # <--- ESTO ES LO MÁS IMPORTANTE
-                            }
+                            if config_temp:
+                                # 2. Creamos la configuración limpia (SIN RECORTE PREVIO) para el modo manual
+                                config_limpia = {
+                                    "cols": config_temp['cols'], 
+                                    "rows": config_temp['rows'],
+                                    "crop_rect": None  # <--- Esto evita que el recorte se desplace o salga en 0%
+                                }
                             
-                            for h_id in sorted(st.session_state.recortes.keys()):
-                                img_c = st.session_state.recortes[h_id] # Aquí usamos el nombre correcto de tu dict
-                                img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
-                                
-                                # Usamos una ruta temporal segura
-                                temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
-                                cv2.imwrite(temp_path, img_cv)
-                                
-                                # 2. Procesar con la config que no tiene crop_rect
+                                # 3. Llamamos al procesador mejorado
+                                # (Asegúrate de que 'sensibilidad' sea el valor del slider del dashboard)
                                 mapa, img_res, msg = image_processor.process_test_image_v2(
                                     temp_path, 
                                     config_limpia, 
-                                    sensibilidad
+                                    sensibilidad 
                                 )
+                            else:
+                                st.error(f"No se encontró la configuración para la máquina: {nombre_maquina}")
                                 
                                 if mapa is not None:
                                     all_maps.append({"id": h_id, "mapa": mapa.tolist()})
