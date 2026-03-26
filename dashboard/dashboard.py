@@ -581,39 +581,39 @@ with tab_analisis:
                 st.divider()
                 
                 # --- BOTÓN FINAL DE PROCESAMIENTO ---
-                if st.button("🚀 INICIAR PROCESAMIENTO TOTAL Y SINCRONIZAR", use_container_width=True, type="secondary"):
-                    if len(st.session_state.recortes) < num_cabezales:
-                        st.error(f"❌ Faltan recortes. Has guardado {len(st.session_state.recortes)} de {num_cabezales} cabezales.")
-                    else:
-                        # 1. INICIALIZACIÓN SEGURA DE VARIABLES
-                        map_json_total = "[]"
-                        all_maps = []
-                        t_missing = 0
-                        t_nodes = 0
-                        ruta_final = ""
-                        salud_final = 0.0 
-
-                        with st.spinner("Procesando matriz de nozzles..."):
-                            config = MACHINE_CONFIGS[machine_selected_global]
-                            img_res_final = None
+                if st.button("✅ PROCESAR RECORTE"):
+                    with st.spinner("⏳ Procesando área seleccionada..."):
+                        # 1. Guardamos el recorte manual
+                        cropped_img.save(st.session_state.temp_image_path)
+                        
+                        # 2. Obtenemos la config original de la máquina
+                        config_original = MACHINE_CONFIGS[st.session_state.active_machine_edit]
+                        
+                        # 3. CREAMOS UNA CONFIGURACIÓN TEMPORAL (Clave del éxito)
+                        # Copiamos la config y anulamos el recorte fijo para que use TODA la imagen recortada
+                        config_temp = config_original.copy()
+                        config_temp['crop_rect'] = None  # Esto le dice al procesador: "no recortes más"
+                        
+                        # 4. Procesamos con la configuración modificada
+                        mapa, img_res, msg = image_processor.process_test_image_v2(
+                            st.session_state.temp_image_path, 
+                            config_temp, # <--- Usamos la config sin recorte fijo
+                            120
+                        )
+                        
+                        if mapa is not None:
+                            # Guardar en base de datos (tu lógica actual)
+                            salud = (np.sum(mapa) / mapa.size) * 100
+                            machine_id = machine_selected_global
                             
-                            # 2. PROCESAR CADA RECORTE
-                            for h_id in sorted(st.session_state.recortes.keys()):
-                                img_c = st.session_state.recortes[h_id]
-                                img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
-                                temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
-                                cv2.imwrite(temp_path, img_cv)
-                                
-                                mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config, sensibilidad)
-                                
-                                if mapa is not None:
-                                    all_maps.append({"id": h_id, "mapa": mapa.tolist()})
-                                    img_res_final = img_res
-                                    t_missing += int(np.count_nonzero(mapa == 0))
-                                    t_nodes += mapa.size
-                                else:
-                                    st.error(f"❌ Error procesando Cabezal {h_id}: {msg}")
-                                    break
+                            if database.save_test_result(machine_id, salud, mapa, img_res):
+                                st.success(f"✅ Procesado con éxito: {salud:.1f}% de salud.")
+                                st.session_state.editando_manual = False
+                                st.session_state.bloquear_refresco = False
+                                time.sleep(2)
+                                st.rerun()
+                        else:
+                            st.error(f"❌ Error en el procesamiento: {msg}")
                             
                             # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
                             if all_maps and img_res_final is not None:
