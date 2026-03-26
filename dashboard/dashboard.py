@@ -593,34 +593,22 @@ with tab_analisis:
                         t_nodes = 0
                         
                         with st.spinner("Procesando matriz de nozzles..."):
-                            if config_temp:
-                                # 2. Creamos la configuración limpia (SIN RECORTE PREVIO) para el modo manual
-                                config_limpia = {
-                                    "cols": config_temp['cols'], 
-                                    "rows": config_temp['rows'],
-                                    "crop_rect": None  # <--- Esto evita que el recorte se desplace o salga en 0%
-                                }
+                            # 1. Obtener config y crear una copia temporal sin recortes fijos
+                            config_base = MACHINE_CONFIGS[machine_selected_global].copy()
+                            config_base['crop_rect'] = None # CRÍTICO: Evita el doble recorte
                             
-                                # 3. Llamamos al procesador mejorado
-                                # (Asegúrate de que 'sensibilidad' sea el valor del slider del dashboard)
-                                mapa, img_res, msg = image_processor.process_test_image_v2(
-                                    temp_path, 
-                                    config_limpia, 
-                                    sensibilidad 
-                                )
-                            else:
-                                st.error(f"No se encontró la configuración para la máquina: {nombre_maquina}")
+                            img_res_final = None
+                            
+                            for h_id in sorted(st.session_state.recortes.keys()):
+                                img_c = st.session_state.recortes[h_id] # Aquí usamos el nombre correcto de tu dict
+                                img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
                                 
-                                if mapa is not None:
-                                    all_maps.append({"id": h_id, "mapa": mapa.tolist()})
-                                    img_res_final = img_res
-                                    t_missing += int(np.count_nonzero(mapa == 0))
-                                    t_nodes += mapa.size
-                                else:
-                                    st.error(f"❌ Error procesando Cabezal {h_id}: {msg}")
-                                       
-                            
-                            # ... (resto de tu lógica de guardado en DB se mantiene igual)
+                                # Usamos una ruta temporal segura
+                                temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
+                                cv2.imwrite(temp_path, img_cv)
+                                
+                                # 2. Procesar con la config que no tiene crop_rect
+                                mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config_base, sensibilidad)
                             
                             # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
                             if all_maps and img_res_final is not None:
