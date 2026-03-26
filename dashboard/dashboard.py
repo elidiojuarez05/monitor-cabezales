@@ -592,11 +592,11 @@ with tab_analisis:
                         t_nodes = 0
                         
                         with st.spinner("Procesando matriz de nozzles..."):
-                            # 1. Obtener config y crear una copia temporal sin recortes fijos
-                            config_base = MACHINE_CONFIGS[machine_selected_global].copy()
-                            config_base['crop_rect'] = None # CRÍTICO: Evita el doble recorte
-                            
-                            img_res_final = None
+                            config_limpia = {
+                                "cols": config_temp['cols'], 
+                                "rows": config_temp['rows'],
+                                "crop_rect": None  # <--- ESTO ES LO MÁS IMPORTANTE
+                            }
                             
                             for h_id in sorted(st.session_state.recortes.keys()):
                                 img_c = st.session_state.recortes[h_id] # Aquí usamos el nombre correcto de tu dict
@@ -607,7 +607,11 @@ with tab_analisis:
                                 cv2.imwrite(temp_path, img_cv)
                                 
                                 # 2. Procesar con la config que no tiene crop_rect
-                                mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config_base, sensibilidad)
+                                mapa, img_res, msg = image_processor.process_test_image_v2(
+                                    temp_path, 
+                                    config_limpia, 
+                                    sensibilidad
+                                )
                                 
                                 if mapa is not None:
                                     all_maps.append({"id": h_id, "mapa": mapa.tolist()})
