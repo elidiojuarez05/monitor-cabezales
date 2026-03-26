@@ -618,7 +618,7 @@ with tab_analisis:
                                     t_nodes += mapa.size
                                 else:
                                     st.error(f"❌ Error procesando Cabezal {h_id}: {msg}")
-                                    break
+                                       
                             
                             # ... (resto de tu lógica de guardado en DB se mantiene igual)
                             
