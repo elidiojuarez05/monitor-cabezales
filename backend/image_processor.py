@@ -114,15 +114,23 @@ def process_standard_manual(cropped_image, config):
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.equalizeHist(gray)  # mejora contraste
+
+    # CLAHE mejora contraste local
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    gray = clahe.apply(gray)
 
     gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
     bg = cv2.medianBlur(gray_blur, 31)
     norm = cv2.divide(gray_blur, bg, scale=255)
 
     edges = cv2.Canny(norm, 30, 100)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 1))
-    edges = cv2.dilate(edges, kernel, iterations=1)
+
+    # Morfología para limpiar
+    kernel_morph = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel_morph, iterations=1)
+
+    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 1))
+    edges = cv2.dilate(edges, kernel_dilate, iterations=1)
 
     row_strength = np.sum(edges > 0, axis=1)
     row_strength = row_strength / np.max(row_strength)
@@ -130,11 +138,11 @@ def process_standard_manual(cropped_image, config):
     rows = config["rows"]
     h = edges.shape[0]
     step_h = h / rows
-
-    injection_map_rows = np.zeros(rows)
-    fila_umbral = 0.05
     margen = 2
 
+    fila_umbral = np.percentile(row_strength, 75) * 0.6
+
+    injection_map_rows = np.zeros(rows)
     for r in range(rows):
         y1 = max(0, int(r * step_h) - margen)
         y2 = min(h, int((r + 1) * step_h) + margen)
@@ -146,14 +154,13 @@ def process_standard_manual(cropped_image, config):
 
     col_strength = np.sum(edges > 0, axis=0)
     col_strength = col_strength / np.max(col_strength)
-
     cols = config["cols"]
     w = edges.shape[1]
     step_w = w / cols
 
-    injection_map_cols = np.zeros(cols)
-    columna_umbral = 0.03
+    columna_umbral = np.percentile(col_strength, 75) * 0.6
 
+    injection_map_cols = np.zeros(cols)
     for c in range(cols):
         x1 = max(0, int(c * step_w) - margen)
         x2 = min(w, int((c + 1) * step_w) + margen)
