@@ -107,21 +107,26 @@ def process_epson(img, config):
 # 🔵 STANDARD (VUTEK, DURST, etc.)
 # ===============================
 def process_standard_manual(roi, config):
-    # Asegurar que es un array de numpy
+    """
+    Analiza EXACTAMENTE el recorte manual enviado.
+    No usa detección automática de bordes (ROI).
+    """
+    # Convertir PIL a OpenCV
     img_cv = np.array(roi)
     if len(img_cv.shape) == 3:
         gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
     else:
         gray = img_cv
 
-    # Binarización INVERSA (Tinta negra -> Blanco)
-    # Ajustamos a 180 para ser más sensibles a gotas claras
+    # Binarización: Invertimos para que la tinta sea blanca (255) y el fondo negro (0)
+    # Usamos un umbral fijo (180) para evitar que el auto-threshold ignore puntos tenues
     _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
 
     rows = config["rows"]
     cols = config["cols"]
     h, w = thresh.shape
     
+    # Calculamos la rejilla según las filas/columnas de la máquina
     block_w = max(1, w // cols)
     block_h = max(1, h // rows)
 
@@ -131,9 +136,14 @@ def process_standard_manual(roi, config):
         for c in range(cols):
             x1, x2 = c * block_w, min((c + 1) * block_w, w)
             y1, y2 = r * block_h, min((r + 1) * block_h, h)
+            
             block = thresh[y1:y2, x1:x2]
-            if block.size > 0 and (np.sum(block == 255) / block.size) > 0.01: 
-                injection_map[r, c] = 1
+            
+            if block.size > 0:
+                # Si hay más de un 1.5% de pixeles con "tinta", el nozzle está activo
+                ink_presence = np.sum(block == 255) / block.size
+                if ink_presence > 0.015: 
+                    injection_map[r, c] = 1
 
     return injection_map
 
