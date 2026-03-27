@@ -107,51 +107,52 @@ def process_epson(img, config):
 # 🔵 STANDARD (VUTEK, DURST, etc.)
 # ===============================
 def process_standard_manual(cropped_image, config):
-    """
-    Procesa el recorte de un cabezal VUTEK/DURST.
-    Devuelve porcentaje de nozzles activos y el mapa 2D.
-    """
-    # --- 1. Convertir PIL a OpenCV ---
-    if hasattr(cropped_image, "convert"):
-        img = np.array(cropped_image.convert('RGB'))
-    else:
-        img = np.array(cropped_image)
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    # Asegurar que es PIL.Image
+    if isinstance(cropped_image, np.ndarray):
+        cropped_image = Image.fromarray(cropped_image)
+    elif not isinstance(cropped_image, Image.Image):
+        raise ValueError("process_standard_manual: cropped_image debe ser PIL.Image o np.ndarray")
+
+    # Convertir a array OpenCV
+    img = np.array(cropped_image.convert('RGB'))
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-    # --- 2. Escala de grises y mejora de contraste local ---
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Mejor contraste local
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     gray = clahe.apply(gray)
 
-    # --- 3. Binarización adaptativa ---
-    # blockSize debe ser impar y >1
-    block_size = min(15, gray.shape[0]//2*2+1)
-    block_size = max(3, block_size | 1)  # asegurar impar
+    # Binarización adaptativa
     thresh = cv2.adaptiveThreshold(
         gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-        cv2.THRESH_BINARY_INV, block_size, 5
+        cv2.THRESH_BINARY_INV, 15, 5
     )
 
-    # --- 4. Crear mapa de inyección ---
-    rows = config.get("rows", 64)
-    cols = config.get("cols", 320)
-    block_h = gray.shape[0] / rows
-    block_w = gray.shape[1] / cols
+    rows = config["rows"]
+    cols = config["cols"]
+    h, w = thresh.shape
 
-    injection_map = np.zeros((rows, cols), dtype=np.uint8)
-    ink_threshold = config.get("ink_threshold", 0.002)  # porcentaje mínimo de tinta
+    block_h = h / rows
+    block_w = w / cols
+
+    injection_map = np.zeros((rows, cols))
+    ink_threshold = config.get("ink_threshold", 0.002)
 
     for r in range(rows):
         for c in range(cols):
             y1 = int(r * block_h)
-            y2 = int(min((r + 1) * block_h, gray.shape[0]))
+            y2 = int((r + 1) * block_h)
             x1 = int(c * block_w)
-            x2 = int(min((c + 1) * block_w, gray.shape[1]))
+            x2 = int((c + 1) * block_w)
 
             block = thresh[y1:y2, x1:x2]
             if block.size == 0:
                 continue
-
             ink_ratio = np.sum(block == 255) / block.size
             if ink_ratio > ink_threshold:
                 injection_map[r, c] = 1
