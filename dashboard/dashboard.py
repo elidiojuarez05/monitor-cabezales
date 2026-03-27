@@ -511,72 +511,73 @@ with tab_planta:
         cols = st.columns(2)
         for j, m_name in enumerate(lista_maquinas[i : i + 2]):
             with cols[j]: render_machine_card(m_name, fecha_consulta, suffix="gral")
-
+#analisis y crop tab3
 with tab_analisis:
-    # Inicializar estados si no existen
     if 'recortes' not in st.session_state: st.session_state.recortes = {}
     if 'finalizado' not in st.session_state: st.session_state.finalizado = False
 
-    # Si ya procesamos, bloqueamos la edición y mostramos éxito
     if st.session_state.finalizado:
-        st.success(f"✅ ¡Sincronización Exitosa!")
-        st.metric("Salud Final", f"{st.session_state.get('salud_final', 0):.2f}%")
-        if st.button("🔄 Realizar nuevo test"):
+        st.success(f"### ✅ ¡{machine_selected_global} Sincronizada!")
+        st.metric("SALUD TOTAL", f"{st.session_state.get('ultima_salud', 0):.2f}%")
+        if st.button("🔄 Nuevo Análisis"):
             st.session_state.finalizado = False
             st.session_state.recortes = {}
             st.rerun()
         st.stop()
 
-    uploaded_file = st.file_uploader("Subir Test Vutek", type=['jpg', 'png', 'jpeg'], key="up_vutek")
+    uploaded_file = st.file_uploader("Subir Test", type=['jpg', 'png'], key="up_manual_vutek")
 
     if uploaded_file:
         img_raw = Image.open(uploaded_file)
-        # Slider de rotación fuera de las columnas para no interferir
-        grados = st.slider("Ajuste de rotación", -5.0, 5.0, 0.0, 0.1)
+        # Rotación leve (opcional)
+        grados = st.slider("Rotación", -5.0, 5.0, 0.0, step=0.1)
         img_rotated = img_raw.rotate(grados, expand=True)
 
         col_edit, col_prev = st.columns([2, 1])
 
         with col_edit:
-            num_cabezales = st.number_input("Cantidad de cabezales", 1, 12, 2)
-            h_id = st.selectbox("Seleccione cabezal a recortar", range(1, num_cabezales + 1))
+            num_h = st.number_input("Cabezales", 1, 12, 2)
+            h_id = st.selectbox("Recortar Cabezal #", range(1, num_h + 1))
             
-            # CROPPER ESTABLE
+            # EL CROPPER: realtime_update=False para evitar saltos y parpadeos
+            # Usamos una key única por cabezal para que Streamlit NO la resetee
             img_cropped = st_cropper(
                 img_rotated, 
                 realtime_update=False, 
                 box_color='#FF0000', 
                 aspect_ratio=None, 
-                key=f"vutek_h_{h_id}" # Key dinámica para persistencia
+                key=f"vutek_crop_key_{h_id}" 
             )
             
-            if st.button(f"💾 Guardar Cabezal {h_id}", type="primary"):
-                st.session_state.recortes[h_id] = img_cropped
-                st.toast(f"H-{h_id} guardado")
+            if st.button(f"💾 Guardar Recorte {h_id}"):
+                # GUARDAMOS UNA COPIA FÍSICA DEL RECORTE
+                st.session_state.recortes[h_id] = img_cropped.copy()
+                st.toast(f"Cabezal {h_id} guardado correctamente.")
 
         with col_prev:
-            st.subheader("Recortes listos")
+            st.subheader("Vistas Previas")
             for idx in sorted(st.session_state.recortes.keys()):
-                st.image(st.session_state.recortes[idx], caption=f"Cabezal {idx}", use_container_width=True)
+                st.image(st.session_state.recortes[idx], caption=f"H-{idx}")
             
-            if len(st.session_state.recortes) >= num_cabezales:
-                if st.button("🚀 INICIAR PROCESAMIENTO TOTAL"):
+            if len(st.session_state.recortes) >= num_h:
+                if st.button("🚀 PROCESAR Y SINCRONIZAR DB", type="primary"):
                     all_maps = []
                     t_missing, t_nodes = 0, 0
                     config_base = MACHINE_CONFIGS[machine_selected_global].copy()
 
-                    for idx, img in st.session_state.recortes.items():
-                        # Usamos la función manual que definimos al principio
-                        mapa = process_standard_manual(img, config_base)
+                    for idx, img_save in st.session_state.recortes.items():
+                        # LLAMADA A LA FUNCIÓN QUE DEFINIMOS ARRIBA
+                        mapa = process_standard_manual(img_save, config_base)
                         
                         missing = int(np.count_nonzero(mapa == 0))
                         t_missing += missing
                         t_nodes += mapa.size
                         all_maps.append({"id": idx, "mapa": mapa.tolist()})
 
-                    # Cálculos finales corregidos
-                    salud_final = ((t_nodes - t_missing) / t_nodes) * 100
-                    st.session_state.ultima_salud = salud_final
+                    # Resultado final
+                    salud = ((t_nodes - t_missing) / t_nodes) * 100
+                    st.session_state.ultima_salud = salud
+                    st.session_state.finalizado = True
                     
                     # --- GUARDADO EN DB ---
                     map_json = json.dumps(all_maps)
