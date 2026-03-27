@@ -6,8 +6,24 @@ MACHINE_CONFIGS = {
     "DURST P10 PLUS": {"cols": 4, "rows": 30, "x_start": 1, "x_end": 302},
     "FAVUTEK ": {"cols": 4, "rows": 5, "x_start": 20, "x_end": 800},
     "MIMAKI": {"cols": 4, "rows": 1, "x_start": 35, "x_end": 612},
-    "EPSON1": {"cols": 10, "rows": 12, "x_start": 0, "x_end": 0},
-    "EPSON2": {"cols": 16, "rows": 4, "x_start": 20, "x_end": 800},
+    "EPSON1": {
+    "cols": 6,
+    "rows": 100,
+    "x_start": 35,
+    "x_end": 612,
+    "y_start": 0,
+    "y_end": 1500,
+    "offset_step": 4
+},
+    "EPSON2": {
+    "cols": 6,
+    "rows": 100,
+    "x_start": 35,
+    "x_end": 612,
+    "y_start": 0,
+    "y_end": 1500,
+    "offset_step": 4
+}
     "POLAROID": {"cols": 12, "rows": 160, "x_start": 20, "x_end": 800},
     "GRANDO": {"cols": 32, "rows": 137, "x_start": 1, "x_end": 32},
     
