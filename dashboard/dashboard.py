@@ -13,6 +13,7 @@ import json
 import base64
 from sqlalchemy import text
 from config import MACHINE_CONFIGS
+from image_processor import process_standard_manual
 
 # =========================================================
 # 1. CONFIGURACIÓN DE PÁGINA (PRIMER EL PRIMER COMANDO)
