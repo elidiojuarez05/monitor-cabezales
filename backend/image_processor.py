@@ -108,40 +108,39 @@ def process_epson(img, config):
 # ===============================
 def process_standard_manual(cropped_image, config):
 
-    img_cv = np.array(cropped_image.convert('RGB'))
-    img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
+    img = np.array(cropped_image.convert('RGB'))
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-
-    # =========================
-    # PREPROCESADO FUERTE
-    # =========================
-    gray = cv2.GaussianBlur(gray, (3, 3), 0)
-
-    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8,8))
-    gray = clahe.apply(gray)
-
-    _, thresh = cv2.threshold(
-        gray, 0, 255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
-    )
-
-    # Engrosar líneas
-    kernel = np.ones((2,2), np.uint8)
-    thresh = cv2.dilate(thresh, kernel, iterations=1)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # =========================
-    # 🔥 DETECCIÓN POR COLUMNAS (CLAVE)
+    # 🔧 1. NORMALIZAR ILUMINACIÓN
     # =========================
-    col_sum = np.sum(thresh == 255, axis=0)  # suma vertical
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    # Normalizar
-    col_norm = col_sum / np.max(col_sum)
+    # eliminar gradiente de luz (CLAVE por el reflejo)
+    bg = cv2.medianBlur(gray, 31)
+    norm = cv2.divide(gray, bg, scale=255)
+
+    # =========================
+    # 🔍 2. DETECTAR LÍNEAS
+    # =========================
+    edges = cv2.Canny(norm, 30, 100)
+
+    # reforzar líneas horizontales
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,1))
+    edges = cv2.dilate(edges, kernel, iterations=1)
+
+    # =========================
+    # 📊 3. PROYECCIÓN VERTICAL
+    # =========================
+    col_strength = np.sum(edges > 0, axis=0)
+
+    # normalizar
+    col_strength = col_strength / np.max(col_strength)
 
     cols = config["cols"]
-
-    # dividir en columnas reales
-    w = thresh.shape[1]
+    w = edges.shape[1]
     step = w / cols
 
     injection_map = np.zeros(cols)
@@ -150,22 +149,16 @@ def process_standard_manual(cropped_image, config):
         x1 = int(c * step)
         x2 = int((c + 1) * step)
 
-        segment = col_norm[x1:x2]
+        segment = col_strength[x1:x2]
 
         if len(segment) == 0:
             continue
 
-        # 🔥 CLAVE: usar el valor máximo, no promedio
-        if np.max(segment) > 0.15:
+        # 🔥 DETECCIÓN REALISTA
+        if np.max(segment) > 0.12:
             injection_map[c] = 1
 
-    # =========================
-    # RESULTADO FINAL
-    # =========================
-    total = len(injection_map)
-    activos = np.sum(injection_map)
-
-    porcentaje = (activos / total) * 100
+    porcentaje = (np.sum(injection_map) / len(injection_map)) * 100
 
     return porcentaje, injection_map
 
