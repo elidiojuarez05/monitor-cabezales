@@ -607,8 +607,7 @@ with tab_analisis:
                                 st.error(f"No se pudo procesar el recorte {idx}: {e}")
                                 continue
                     
-                        # LLAMADA A LA FUNCIÓN
-                        porcentaje, mapa = process_standard_manual(img_save, config_base)
+                        
                         # -------------------------
                         # Procesamiento robusto
                         # -------------------------
