@@ -564,8 +564,14 @@ with tab_analisis:
                         from image_processor import process_test_image_v2
                         import tempfile
 
-                        maquina_nombre = st.session_state.get('maquina_seleccionada')
-                        st.write(f"⚙️ Procesando con la configuración de: {maquina_nombre}") # Esto te dirá si hay error de asignación
+                        # 1. Obtener el nombre de la máquina
+                        maquina_nombre = st.session_state.get('maquina_seleccionada', 'DURST P10 PLUS')
+                        
+                        # 2. DEFINIR base_config (Aquí estaba el error)
+                        # Buscamos la configuración en el diccionario; si no existe, usamos una por defecto
+                        base_config = MACHINE_CONFIGS.get(maquina_nombre, {"cols": 4, "rows": 20})
+                        
+                        st.write(f"⚙️ Procesando con la configuración de: {maquina_nombre} ({base_config['cols']}x{base_config['rows']})")
                         
                         all_maps = {}
                         t_nodes = 0
@@ -574,14 +580,21 @@ with tab_analisis:
 
                         # PROCESAMOS CADA RECORTE GUARDADO
                         for h_id, img_pil in st.session_state.recortes.items():
-                            # Guardar temporalmente el recorte para que OpenCV lo lea
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                                 img_pil.save(tmp.name)
                                 
-                                # Configuración limpia para el recorte
-                                cfg = {"cols": base_config['cols'], "rows": base_config['rows'], "crop_rect": None}
+                                # 3. Ahora base_config ya existe y se puede usar aquí
+                                cfg = {
+                                    "cols": base_config['cols'], 
+                                    "rows": base_config['rows'], 
+                                    "crop_rect": None
+                                }
                                 
-                                mapa, img_res, msg = process_test_image_v2(tmp.name, cfg, st.session_state.get('sensibilidad', 20))
+                                mapa, img_res, msg = process_test_image_v2(
+                                    tmp.name, 
+                                    cfg, 
+                                    st.session_state.get('sensibilidad', 20)
+                                )
                                 
                                 if mapa is not None:
                                     all_maps[f"H{h_id}"] = mapa.tolist()
@@ -589,7 +602,7 @@ with tab_analisis:
                                     t_missing += (mapa.size - np.sum(mapa))
                                     img_resultados.append(img_res)
                                 
-                                os.unlink(tmp.name) # Borrar temporal
+                                os.unlink(tmp.name)
 
                         if all_maps:
                             salud_final = ((t_nodes - t_missing) / t_nodes) * 100
