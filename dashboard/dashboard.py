@@ -591,10 +591,10 @@ with tab_analisis:
                     st.session_state.finalizado = True
                     
                     # --- GUARDADO EN DB ---
-                    map_json = json.dumps(all_maps)
+                    map_json = json.dumps(all_maps_list)
                     params = {
                         "m": machine_selected_global,
-                        "s": salud_final,
+                        "s": salud,
                         "n": t_missing,
                         "map": map_json
                     }
