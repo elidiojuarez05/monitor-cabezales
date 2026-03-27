@@ -516,97 +516,89 @@ with tab_planta:
 # TAB 3: ANÁLISIS MANUAL Y CROPPER (VERSIÓN ESTABLE)
 # =========================================================
 with tab_analisis:
-    # 1. Inicialización de estados críticos
+    # 1. Inicialización de Estados de Persistencia
+    if 'analisis_completado' not in st.session_state:
+        st.session_state.analisis_completado = False
+    if 'ultima_salud' not in st.session_state:
+        st.session_state.ultima_salud = 0.0
     if 'recortes' not in st.session_state:
         st.session_state.recortes = {}
-    if 'ejecutando_proceso' not in st.session_state:
-        st.session_state.ejecutando_proceso = False
 
-    # 2. Si ya procesamos, mostramos resultado y botón de reinicio
-    if st.session_state.ejecutando_proceso:
-        st.success(f"✅ ¡{machine_selected_global} Actualizada!")
-        if st.button("🔄 Realizar otro análisis (Limpiar todo)"):
-            st.session_state.recortes = {}
-            st.session_state.ejecutando_proceso = False
-            st.rerun()
-        st.stop() # DETIENE EL RENDERIZADO AQUÍ PARA EVITAR PARPADEO
-
-    # 3. Interfaz de Carga
-    uploaded_file = st.file_uploader("Subir imagen del test", type=['jpg', 'png', 'jpeg'], key="up_manual")
-    
-    if uploaded_file:
-        col_edit, col_prev = st.columns([2, 1])
+    # --- PANTALLA DE RESULTADOS (Solo se ve al terminar) ---
+    if st.session_state.analisis_completado:
+        st.balloons()
+        st.success(f"### ✅ ¡{machine_selected_global} Actualizada!")
         
+        # Mostramos el estatus en grande
+        col_m1, col_m2 = st.columns(2)
+        col_m1.metric("Salud del Cabezal", f"{st.session_state.ultima_salud:.2f}%")
+        col_m2.info("Los datos han sido sincronizados con la base de datos correctamente.")
+        
+        if st.button("🔄 Cargar otro test (Limpiar todo)"):
+            st.session_state.analisis_completado = False
+            st.session_state.recortes = {}
+            st.session_state.ultima_salud = 0.0
+            st.rerun()
+        
+        st.stop() # CRÍTICO: Detiene el script aquí. No lee nada de lo que sigue abajo.
+
+    # --- PANTALLA DE EDICIÓN (Solo se ve si no ha terminado) ---
+    st.info("Sube la imagen de la Vutek, ajústala y guarda cada cabezal.")
+    
+    uploaded_file = st.file_uploader("Subir imagen del test", type=['jpg', 'png', 'jpeg'], key="up_vutek_final")
+
+    if uploaded_file:
+        img_raw = Image.open(uploaded_file)
+        col_edit, col_prev = st.columns([2, 1])
+
         with col_edit:
-            img_raw = Image.open(uploaded_file)
-            st.subheader("1. Ajuste")
-            grados = st.slider("Girar imagen", -180, 180, 0, key="slider_vutek")
+            st.subheader("1. Ajuste de Imagen")
+            grados = st.slider("Girar (grados)", -180, 180, 0, key="slider_vutek")
             img_rotated = img_raw.rotate(grados, expand=True)
             
-            st.subheader("2. Recorte")
-            num_cabezales = st.number_input("Total cabezales", min_value=1, value=2)
-            cabezal_actual = st.selectbox("Editar cabezal:", range(1, num_cabezales + 1))
+            st.subheader("2. Selección de Cabezales")
+            num_cabezales = st.number_input("¿Cuántos cabezales vas a recortar?", min_value=1, value=2)
+            cabezal_actual = st.selectbox("Cabezal actual:", range(1, num_cabezales + 1))
             
-            # --- CAMBIO CRÍTICO: realtime_update=False ---
-            # Esto evita que la app se recargue mientras mueves el mouse.
-            # Solo se actualizará cuando sueltes el recuadro o cambies un valor.
+            # realtime_update=False para que NO parpadee al mover el mouse
             img_cropped = st_cropper(
                 img_rotated, 
                 realtime_update=False, 
                 box_color='#FF0000', 
                 aspect_ratio=None, 
-                key=f"crop_v_{cabezal_actual}" 
+                key=f"crop_final_{cabezal_actual}"
             )
             
             if st.button(f"💾 Guardar Cabezal {cabezal_actual}", type="primary"):
                 st.session_state.recortes[cabezal_actual] = img_cropped.copy()
-                st.toast(f"Cabezal {cabezal_actual} listo")
+                st.toast(f"Cabezal {cabezal_actual} capturado.")
 
         with col_prev:
             st.subheader("Vista Previa")
             for h_id in sorted(st.session_state.recortes.keys()):
-                st.image(st.session_state.recortes[h_id], caption=f"H-{h_id}")
+                st.image(st.session_state.recortes[h_id], caption=f"Cabezal {h_id}")
             
             if len(st.session_state.recortes) >= num_cabezales:
                 st.divider()
-                # Botón final
-                # --- DENTRO DEL BOTÓN DE PROCESAMIENTO TOTAL ---
-                if st.button("🚀 INICIAR PROCESAMIENTO TOTAL", type="secondary", use_container_width=True):
-                    if len(st.session_state.recortes) < num_cabezales:
-                        st.error(f"❌ Faltan recortes ({len(st.session_state.recortes)}/{num_cabezales})")
-                    else:
-                        # INICIALIZACIÓN DE VARIABLES (Aquí es donde fallaba)
-                        all_maps = [] 
-                        t_missing = 0
-                        t_nodes = 0
-                        img_res_final = None
-                        exito_proceso = True # Flag para controlar errores en el bucle
-                
-                        with st.spinner("Procesando matriz de nozzles..."):
-                            config_base = MACHINE_CONFIGS[machine_selected_global].copy()
-                            config_base['crop_rect'] = None 
-                
-                            for h_id in sorted(st.session_state.recortes.keys()):
-                                img_c = st.session_state.recortes[h_id]
-                                img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
-                                
-                                # Ruta temporal
-                                temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
-                                cv2.imwrite(temp_path, img_cv)
-                                
-                                # PROCESAR
-                                mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config_base, sensibilidad)
-                                
-                                if mapa is not None:
-                                    # AQUÍ YA NO DARÁ NameError porque all_maps se definió arriba
-                                    all_maps.append({"id": h_id, "mapa": mapa.tolist()})
-                                    img_res_final = img_res
-                                    t_missing += int(np.count_nonzero(mapa == 0))
-                                    t_nodes += mapa.size
-                                else:
-                                    st.error(f"❌ Error en Cabezal {h_id}: {msg}")
-                                    exito_proceso = False
-                                    break
+                if st.button("🚀 PROCESAR TODO Y GUARDAR", use_container_width=True):
+                    with st.spinner("Analizando nozzles..."):
+                        # --- INICIO PROCESAMIENTO ---
+                        all_maps = []
+                        total_missing = 0
+                        total_nodes = 0
+                        
+                        config_base = MACHINE_CONFIGS[machine_selected_global].copy()
+                        config_base['crop_rect'] = None
+
+                        for h_id, img_c in st.session_state.recortes.items():
+                            img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
+                            # Procesamiento (asegúrate de que tu función devuelva estos 3 valores)
+                            mapa, _, _ = process_standard(img_cv, config_base) 
+                            
+                            if mapa is not None:
+                                total_missing += int(np.count_nonzero(mapa == 0))
+                                total_nodes += mapa.size
+                                all_maps.append(mapa.tolist())
                         
                         
                         # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
