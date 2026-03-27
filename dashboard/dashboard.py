@@ -513,147 +513,115 @@ with tab_planta:
             with cols[j]: render_machine_card(m_name, fecha_consulta, suffix="gral")
 
 # =========================================================
-# TAB 3: ANÁLISIS MANUAL Y CROPPER (ROTACIÓN Y SINCRONIZACIÓN)
+# TAB 3: ANÁLISIS MANUAL Y CROPPER (OPTIMIZADO)
 # =========================================================
 with tab_analisis:
-    st.info("Sube una imagen, rótala si es necesario y recorta los cabezales manualmente. "
-            "El refresco automático se pausará mientras editas.")
+    st.info("Sube una imagen, rótala y recorta los cabezales. El sistema procesará cada uno por separado.")
     
-    # --- CONTROL DE INTERACCIÓN ---
-    # Usamos una variable en session_state para saber si estamos editando
+    if 'recortes' not in st.session_state:
+        st.session_state.recortes = {}
     if 'editando_manual' not in st.session_state:
         st.session_state.editando_manual = False
 
     uploaded_file = st.file_uploader("Subir imagen del test", type=['jpg', 'png', 'jpeg'], key="up_manual")
     
     if uploaded_file:
-        # Activamos el modo edición para pausar el carrusel
         st.session_state.editando_manual = True
-        
-        # 1. CARGAR IMAGEN ORIGINAL
         img_raw = Image.open(uploaded_file)
         
         col_edit, col_prev = st.columns([2, 1])
         
         with col_edit:
             st.subheader("1. Ajuste y Rotación")
-            
-            # ---ROTACIÓN ---
-            # Agregamos el slider de grados
             grados = st.slider("Girar imagen (grados)", -180, 180, 0, step=1, key="rotate_slider")
-            
-            # expand=True agranda el lienzo para que quepa la imagen rotada completa
             img_rotated = img_raw.rotate(grados, expand=True, resample=Image.BICUBIC)
-            
-            # Mostrar la imagen rotada antes de recortar (opcional, para feedback)
             
             st.divider()
             st.subheader("2. Recorte Manual")
-            
             num_cabezales = st.number_input("Número de cabezales en la imagen", min_value=1, value=2, step=1)
+            cabezal_actual = st.selectbox("Selecciona qué cabezal vas a recortar:", range(1, num_cabezales + 1))
             
-            # Selector de cabezal actual para asignar el recorte
-            cabezal_actual = st.selectbox("Selecciona qué cabezal vas a recortar ahora:", range(1, num_cabezales + 1))
-            
-            st.caption(f"Dibuja el recuadro sobre el Cabezal {cabezal_actual} y haz clic en 'Guardar Recorte'")
-            
-            # --- CROPPER (Sobre la imagen ya rotada correctamente) ---
-            # Importante: realtime_update=False para que no sature la app al mover el cuadro
-            img_cropped = st_cropper(img_rotated, 
-                                    realtime_update=False, 
-                                    box_color='#FF0000', 
-                                    aspect_ratio=None, 
-                                    key=f"crop_canvas_{cabezal_actual}_{grados}") # Key dinámica para forzar refresco al rotar
+            # --- CROPPER ---
+            img_cropped = st_cropper(img_rotated, realtime_update=False, box_color='#FF0000', 
+                                    aspect_ratio=None, key=f"crop_canvas_{cabezal_actual}_{grados}")
 
             if st.button(f"💾 Guardar Recorte del Cabezal {cabezal_actual}", type="primary"):
-                # Guardamos el recorte en el session_state usando el ID del cabezal
                 st.session_state.recortes[cabezal_actual] = img_cropped
-                st.toast(f"✅ Recorte del Cabezal {cabezal_actual} guardado temporalmente.")
+                st.toast(f"✅ Cabezal {cabezal_actual} guardado.")
         
         with col_prev:
-            st.subheader("Vista Previa de Recortes")
+            st.subheader("Vista Previa")
+            for h_id in sorted(st.session_state.recortes.keys()):
+                st.image(st.session_state.recortes[h_id], caption=f"Cabezal {h_id}", use_container_width=True)
             
-            # Mostrar los recortes que ya se han guardado
             if st.session_state.recortes:
-                for h_id in sorted(st.session_state.recortes.keys()):
-                    img = st.session_state.recortes[h_id]
-                    st.image(img, caption=f"Cabezal {h_id} (Listo)", use_column_width=True)
-                
                 st.divider()
                 
                 # --- BOTÓN FINAL DE PROCESAMIENTO ---
-                # --- BOTÓN FINAL DE PROCESAMIENTO CORREGIDO ---
-                # --- BUSCA LA SECCIÓN DE ANÁLISIS MANUAL EN TU DASHBOARD.PY ---
-                if st.button("🔍 PROCESAR RECORTE MANUAL"):
+                if st.button("🔍 PROCESAR TODOS LOS CABEZALES", use_container_width=True):
                     try:
-                        # 1. Recuperar la configuración base de la máquina seleccionada
                         from config import MACHINE_CONFIGS
+                        from image_processor import process_test_image_v2
+                        import tempfile
+
                         maquina_nombre = st.session_state.get('maquina_seleccionada', 'DURST P10 PLUS')
                         base_config = MACHINE_CONFIGS.get(maquina_nombre, {"cols": 4, "rows": 20})
-                
-                        # 2. CREAR CONFIGURACIÓN "LIMPIA" PARA EL RECORTE
-                        # Esto es vital: Ignoramos los recortes automáticos de config.py 
-                        # porque TÚ ya hiciste el recorte con el mouse.
-                        config_para_procesar = {
-                            "cols": base_config['cols'], 
-                            "rows": base_config['rows'],
-                            "crop_rect": None  # <--- Indispensable para que no se desfase
-                        }
-                
-                        # 3. LLAMAR AL PROCESADOR
-                        # Usamos la sensibilidad del slider (ej. 20)
-                        from image_processor import process_test_image_v2
-                        mapa, img_res, msg = process_test_image_v2(
-                            st.session_state.temp_image_path, 
-                            config_para_procesar, 
-                            st.session_state.get('sensibilidad', 20)
-                        )
-                
-                        if mapa is not None:
-                            st.image(img_res, caption="Resultado del Escaneo Inteligente", use_container_width=True)
-                            # Calcular salud
-                            total = mapa.size
-                            buenos = np.sum(mapa)
-                            salud = (buenos / total) * 100
-                            st.metric("Salud del Cabezal", f"{salud:.1f}%")
-                        else:
-                            st.error(f"Error: {msg}")
-                
-                    except Exception as e:
-                        st.error(f"Hubo un error al procesar: {e}")
-                            
-                            # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
-                            if all_maps and img_res_final is not None:
-                                salud_final = float(((t_nodes - t_missing) / t_nodes) * 100)
-                                img_pil_res = Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB))
-                                ruta_final = guardar_evidencia_fisica(img_pil_res, machine_selected_global)
-                                map_json_total = json.dumps(all_maps)
+                        
+                        all_maps = {}
+                        t_nodes = 0
+                        t_missing = 0
+                        img_resultados = []
 
-                                # Armamos los parámetros justo antes de enviarlos
-                                params = {
-                                    "m": str(machine_selected_global),
-                                    "s": float(salud_final),
-                                    "n": int(t_missing),
-                                    "map": str(map_json_total),
-                                    "e": str(ruta_final)
-                                }
+                        # PROCESAMOS CADA RECORTE GUARDADO
+                        for h_id, img_pil in st.session_state.recortes.items():
+                            # Guardar temporalmente el recorte para que OpenCV lo lea
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                                img_pil.save(tmp.name)
                                 
-                                exito = commit_db("""
-                                    INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
-                                    VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
-                                """, params)
+                                # Configuración limpia para el recorte
+                                cfg = {"cols": base_config['cols'], "rows": base_config['rows'], "crop_rect": None}
+                                
+                                mapa, img_res, msg = process_test_image_v2(tmp.name, cfg, st.session_state.get('sensibilidad', 20))
+                                
+                                if mapa is not None:
+                                    all_maps[f"H{h_id}"] = mapa.tolist()
+                                    t_nodes += mapa.size
+                                    t_missing += (mapa.size - np.sum(mapa))
+                                    img_resultados.append(img_res)
+                                
+                                os.unlink(tmp.name) # Borrar temporal
 
-                                if exito:
-                                    st.session_state.recortes = {}
-                                    st.session_state.editando_manual = False
-                                    st.success(f"✅ ¡{machine_selected_global} Actualizada! Total: {salud_final:.1f}%")
-                                    st.balloons()
-                                    time.sleep(2)
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Los datos se procesaron pero NO se pudieron guardar por error en la base de datos.")
-                            else:
-                                st.warning("⚠️ No se generaron mapas válidos. Revisa los recortes de la imagen.")
+                        if all_maps:
+                            salud_final = ((t_nodes - t_missing) / t_nodes) * 100
+                            
+                            # Crear una imagen final combinada de los resultados
+                            img_res_final = cv2.vconcat(img_resultados) if len(img_resultados) > 1 else img_resultados[0]
+                            st.image(img_res_final, caption=f"Resultado Final: {salud_final:.1f}%", use_container_width=True)
+
+                            # --- GUARDAR EN BASE DE DATOS ---
+                            img_pil_res = Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB))
+                            ruta_final = guardar_evidencia_fisica(img_pil_res, maquina_nombre)
+                            
+                            params = {
+                                "m": str(maquina_nombre),
+                                "s": float(salud_final),
+                                "n": int(t_missing),
+                                "map": json.dumps(all_maps),
+                                "e": str(ruta_final)
+                            }
+                            
+                            if commit_db("""INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
+                                          VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)""", params):
+                                
+                                st.session_state.recortes = {}
+                                st.session_state.editando_manual = False
+                                st.success(f"✅ ¡{maquina_nombre} Actualizada con {salud_final:.1f}%!")
+                                st.balloons()
+                                time.sleep(2)
+                                st.rerun()
+
+                    except Exception as e:
+                        st.error(f"Error crítico: {e}")
 
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
