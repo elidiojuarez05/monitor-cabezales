@@ -521,6 +521,7 @@ with tab_planta:
 with tab_analisis:
     import json
     from PIL import Image
+    import numpy as np
 
     # ===============================
     # 🔹 Estados persistentes
@@ -561,7 +562,7 @@ with tab_analisis:
 
             img_cropped = st_cropper(
                 img_rotated,
-                realtime_update=False,  # evita que se mueva solo
+                realtime_update=False,
                 box_color='#FF0000',
                 aspect_ratio=None,
                 key=f"vutek_crop_{h_id}"
@@ -570,6 +571,9 @@ with tab_analisis:
             # Guardado robusto del crop
             if st.button(f"💾 Guardar Recorte {h_id}", type="primary"):
                 if img_cropped is not None:
+                    # Asegurar que sea PIL.Image
+                    if not isinstance(img_cropped, Image.Image):
+                        img_cropped = Image.fromarray(np.array(img_cropped))
                     st.session_state.recortes[h_id] = img_cropped.copy()
                     st.toast(f"Cabezal {h_id} guardado.")
                 else:
@@ -594,11 +598,15 @@ with tab_analisis:
                     config_base = MACHINE_CONFIGS[machine_selected_global].copy()
 
                     for idx, img_save in st.session_state.recortes.items():
+                        # Verificación de crop válido
                         if img_save is None:
                             st.warning(f"Cabezal {idx} no tiene recorte válido, se omite.")
                             continue
+                        if not hasattr(img_save, "convert"):
+                            st.warning(f"Cabezal {idx} no es una imagen válida, se omite.")
+                            continue
 
-                        # --- Procesamiento estándar VUTEK / Durst ---
+                        # Procesamiento
                         porcentaje, mapa = process_standard_manual(img_save, config_base)
 
                         missing = int(np.count_nonzero(mapa == 0))
@@ -608,7 +616,7 @@ with tab_analisis:
 
                         st.image(img_save, caption=f"Procesado H-{idx}", use_column_width=True)
 
-                    # --- Cálculo de salud total ---
+                    # Cálculo de salud total
                     if t_nodes > 0:
                         salud = ((t_nodes - t_missing) / t_nodes) * 100
                     else:
@@ -617,7 +625,7 @@ with tab_analisis:
                     st.session_state.ultima_salud = salud
                     st.session_state.finalizado = True
 
-                    # --- Guardado en DB ---
+                    # Guardado en DB
                     map_json = json.dumps(all_maps_list)
                     params = {
                         "m": machine_selected_global,
