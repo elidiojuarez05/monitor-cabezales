@@ -108,22 +108,24 @@ def process_epson(img, config):
 # ===============================
 def process_standard_manual(roi, config):
     """
-    Versión para procesamiento MANUAL. 
-    'roi' ya es el recorte que viene del cropper, no necesita detección automática.
+    Analiza ÚNICAMENTE el recorte enviado por el usuario.
+    Elimina cualquier detección automática de ROI.
     """
-    # 1. Convertir a gris y binarizar
-    if len(roi.shape) == 3:
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    # Convertir a array de OpenCV si viene de PIL
+    img_cv = np.array(roi)
+    if len(img_cv.shape) == 3:
+        gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
     else:
-        gray = roi
+        gray = img_cv
 
-    # Umbral de binarización
+    # Binarización simple: Buscamos tinta (negro) sobre papel (blanco)
     _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
 
     rows = config["rows"]
     cols = config["cols"]
     h, w = thresh.shape
     
+    # Tamaño de cada celda (nozzle)
     block_w = max(1, w // cols)
     block_h = max(1, h // rows)
 
@@ -137,9 +139,9 @@ def process_standard_manual(roi, config):
             block = thresh[y1:y2, x1:x2]
             
             if block.size > 0:
-                # Sensibilidad: si hay más del 2% de píxeles activos, el nozzle funciona
-                white_ratio = np.sum(block == 255) / block.size
-                if white_ratio > 0.02: 
+                # Si más del 2% del bloque tiene "tinta" (255), el nozzle está OK
+                ink_ratio = np.sum(block == 255) / block.size
+                if ink_ratio > 0.02: 
                     injection_map[r, c] = 1
 
     return injection_map, None, "OK"
