@@ -153,7 +153,7 @@ def process_standard_manual(cropped_image, config):
     block_w = w / cols
 
     injection_map = np.zeros((rows, cols))
-    ink_threshold = config.get("ink_threshold", 0.002)
+    ink_threshold = config.get("ink_threshold", 0.003)
 
     for r in range(rows):
         for c in range(cols):
