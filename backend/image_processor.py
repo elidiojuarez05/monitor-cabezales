@@ -107,25 +107,21 @@ def process_epson(img, config):
 # 🔵 STANDARD (VUTEK, DURST, etc.)
 # ===============================
 def process_standard_manual(roi, config):
-    """
-    Analiza ÚNICAMENTE el recorte enviado por el usuario.
-    Elimina cualquier detección automática de ROI.
-    """
-    # Convertir a array de OpenCV si viene de PIL
+    # Asegurar que es un array de numpy
     img_cv = np.array(roi)
     if len(img_cv.shape) == 3:
         gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
     else:
         gray = img_cv
 
-    # Binarización simple: Buscamos tinta (negro) sobre papel (blanco)
-    _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+    # Binarización INVERSA (Tinta negra -> Blanco)
+    # Ajustamos a 180 para ser más sensibles a gotas claras
+    _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
 
     rows = config["rows"]
     cols = config["cols"]
     h, w = thresh.shape
     
-    # Tamaño de cada celda (nozzle)
     block_w = max(1, w // cols)
     block_h = max(1, h // rows)
 
@@ -133,18 +129,13 @@ def process_standard_manual(roi, config):
 
     for r in range(rows):
         for c in range(cols):
-            x1, x2 = c * block_w, (c + 1) * block_w
-            y1, y2 = r * block_h, (r + 1) * block_h
-            
+            x1, x2 = c * block_w, min((c + 1) * block_w, w)
+            y1, y2 = r * block_h, min((r + 1) * block_h, h)
             block = thresh[y1:y2, x1:x2]
-            
-            if block.size > 0:
-                # Si más del 2% del bloque tiene "tinta" (255), el nozzle está OK
-                ink_ratio = np.sum(block == 255) / block.size
-                if ink_ratio > 0.02: 
-                    injection_map[r, c] = 1
+            if block.size > 0 and (np.sum(block == 255) / block.size) > 0.01: 
+                injection_map[r, c] = 1
 
-    return injection_map, None, "OK"
+    return injection_map
 
 
 # ===============================
