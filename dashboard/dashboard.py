@@ -13,6 +13,9 @@ import json
 import base64
 from sqlalchemy import text
 from config import MACHINE_CONFIGS
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(BASE_DIR)
 from backend.image_processor import process_standard_manual
 
 # =========================================================
