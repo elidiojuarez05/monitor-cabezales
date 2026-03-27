@@ -534,7 +534,26 @@ with tab_analisis:
         with col_edit:
             st.subheader("1. Ajuste y Rotación")
             grados = st.slider("Girar imagen (grados)", -180, 180, 0, step=1, key="rotate_slider")
-            img_rotated = img_raw.rotate(grados, expand=True, resample=Image.BICUBIC)
+            # --- VALIDACIÓN PREVIA ---
+            if img_rotated is not None:
+                # 1. Asegúrate de que el key sea un string limpio
+                crop_key = f"crop_vutek_{int(cabezal_actual)}"
+                
+                try:
+                    # 2. Llamada simplificada (algunas versiones no aceptan canvas_height)
+                    img_cropped = st_cropper(
+                        img_rotated,
+                        realtime_update=True,
+                        box_color='#FF0000',
+                        aspect_ratio=None,
+                        key=crop_key
+                    )
+                except Exception as e:
+                    st.error(f"Error en el Cropper: {e}")
+                    # Fallback: si falla el cropper, usamos la imagen rotada completa
+                    img_cropped = img_rotated
+            else:
+                st.error("No se pudo cargar la imagen para recortar.")
             
             st.divider()
             st.subheader("2. Recorte Manual")
