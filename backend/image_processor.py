@@ -108,40 +108,77 @@ def process_epson(img, config):
 # ===============================
 def process_standard_manual(cropped_image, config):
     """
-    Analiza ÚNICAMENTE los píxeles del recorte manual.
-    Ignora cualquier detección de bordes automática.
+    Versión ROBUSTA para Vutek / Durst
+    - Detecta líneas finas
+    - Tolera variación de iluminación
+    - Reduce falsos negativos
     """
-    # Convertir PIL a Array de OpenCV
+
+    # =========================
+    # 1. CONVERSIÓN
+    # =========================
     img_cv = np.array(cropped_image.convert('RGB'))
     img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
-    
-    # Escala de grises y Binarización
-    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    
-    # Umbral de 180 (Ajusta si los puntos son muy claros)
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
+    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+
+    # =========================
+    # 2. PREPROCESADO (CLAVE)
+    # =========================
+    # Suavizado leve (reduce ruido sin perder líneas)
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+
+    # Aumentar contraste local (MUY IMPORTANTE en Vutek)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    gray = clahe.apply(gray)
+
+    # =========================
+    # 3. BINARIZACIÓN ROBUSTA
+    # =========================
+    _, thresh = cv2.threshold(
+        gray, 0, 255,
+        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )
+
+    # =========================
+    # 4. ENGROSAR LÍNEAS (CLAVE)
+    # =========================
+    kernel = np.ones((2,2), np.uint8)
+    thresh = cv2.dilate(thresh, kernel, iterations=1)
+
+    # =========================
+    # 5. GRID
+    # =========================
     rows = config["rows"]
     cols = config["cols"]
     h, w = thresh.shape
-    
-    # Dividir el recorte exactamente en la rejilla de nozzles
+
     block_w = w / cols
     block_h = h / rows
 
     injection_map = np.zeros((rows, cols))
 
+    # =========================
+    # 6. DETECCIÓN FLEXIBLE
+    # =========================
     for r in range(rows):
         for c in range(cols):
             x1, x2 = int(c * block_w), int((c + 1) * block_w)
             y1, y2 = int(r * block_h), int((r + 1) * block_h)
-            
+
             block = thresh[y1:y2, x1:x2]
-            
-            if block.size > 0:
-                # Si hay más de 1% de píxeles negros, el nozzle disparó
-                if (np.sum(block == 255) / block.size) > 0.01: 
-                    injection_map[r, c] = 1
+
+            if block.size == 0:
+                continue
+
+            # % de tinta
+            ink_density = np.sum(block == 255) / block.size
+
+            # REGLA MEJORADA:
+            # - más sensible
+            # - detecta líneas finas
+            if ink_density > 0.003:   # 🔥 antes 0.01
+                injection_map[r, c] = 1
 
     return injection_map
 
