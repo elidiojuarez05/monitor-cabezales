@@ -108,24 +108,24 @@ def process_epson(img, config):
 # ===============================
 def process_standard_manual(cropped_image, config):
     """
-    Analiza EXACTAMENTE los píxeles del recorte.
-    No intenta buscar bordes automáticamente.
+    Analiza ÚNICAMENTE los píxeles del recorte manual.
+    Ignora cualquier detección de bordes automática.
     """
-    # Convertir PIL a OpenCV correctamente
+    # Convertir PIL a Array de OpenCV
     img_cv = np.array(cropped_image.convert('RGB'))
     img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
     
-    # Convertir a escala de grises
+    # Escala de grises y Binarización
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-
-    # Binarización: Ajustamos el umbral para detectar gotas
-    # Usamos 180 para que sea sensible en las Vutek
+    
+    # Umbral de 180 (Ajusta si los puntos son muy claros)
     _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
 
     rows = config["rows"]
     cols = config["cols"]
     h, w = thresh.shape
     
+    # Dividir el recorte exactamente en la rejilla de nozzles
     block_w = w / cols
     block_h = h / rows
 
@@ -139,7 +139,7 @@ def process_standard_manual(cropped_image, config):
             block = thresh[y1:y2, x1:x2]
             
             if block.size > 0:
-                # Si hay más del 1% de píxeles negros (tinta), el nozzle está OK
+                # Si hay más de 1% de píxeles negros, el nozzle disparó
                 if (np.sum(block == 255) / block.size) > 0.01: 
                     injection_map[r, c] = 1
 
