@@ -59,80 +59,47 @@ def detect_roi_auto(img):
 # 🟣 EPSON (especial)
 # ===============================
 def process_epson(img, config):
-
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    # mejor contraste cyan
-    b, g, r = cv2.split(img_rgb)
-    bg = cv2.addWeighted(b, 0.7, g, 0.3, 0)
-
-    blur = cv2.bilateralFilter(bg, 9, 75, 75)
-
-    thresh = cv2.adaptiveThreshold(
-        blur, 255,
-        cv2.ADAPTIVE_THRESH_MEAN_C,
-        cv2.THRESH_BINARY_INV,
-        35, 10
-    )
-
-    sobel = cv2.Sobel(thresh, cv2.CV_64F, 0, 1, ksize=3)
-    sobel = cv2.convertScaleAbs(sobel)
-
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    morph = cv2.morphologyEx(sobel, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    roi = img_rgb  # usar imagen completa
+    
+    # 1. Convertir a Gris y mejorar contraste para Cyan/Magenta
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # 2. Binarización robusta (Buscamos lo que NO es blanco)
+    # Ajustamos el umbral: píxeles menores a 200 suelen ser tinta
+    _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
     
     rows = config["rows"]
     cols = config["cols"]
-
-    h, w, _ = roi.shape
+    h, w = thresh.shape
+    
     block_w = w // cols
     block_h = h // rows
-
     offset_step = config.get("offset_step", 4)
-    offsets = [c * offset_step for c in range(cols)]
-
+    
     injection_map = np.zeros((rows, cols))
 
-    for r in range(rows):
-        for c in range(cols):
+    for c in range(cols):
+        y_offset = c * offset_step # El desplazamiento aumenta por columna
+        for r in range(rows):
+            x1, x2 = c * block_w, (c + 1) * block_w
+            y1, y2 = r * block_h + y_offset, (r + 1) * block_h + y_offset
 
-            y_offset = offsets[c]
+            # Evitar salir de los bordes de la imagen
+            if y2 > h: continue
 
-            x1 = c * block_w
-            x2 = (c + 1) * block_w
+            # Extraer el bloque de la imagen BINARIA
+            block_bin = thresh[y1:y2, x1:x2]
 
-            y1 = r * block_h + y_offset
-            y2 = (r + 1) * block_h + y_offset
-
-            if y2 > h:
-                continue
-
-            block = roi[y1:y2, x1:x2]
-
-            gray = cv2.cvtColor(block, cv2.COLOR_RGB2GRAY)
-
-            blur = cv2.bilateralFilter(gray, 7, 50, 50)
-
-            th = cv2.adaptiveThreshold(
-                blur, 255,
-                cv2.ADAPTIVE_THRESH_MEAN_C,
-                cv2.THRESH_BINARY_INV,
-                35, 10
-            )
-
-            morph2 = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=1)
-
-            ink_strength = np.mean(block)  # intensidad promedio
-
-            if ink_strength < 240:  # detecta presencia de tinta real
+            # CRÍTICO: Si hay ALGUNOS píxeles negros (tinta), marcamos como 1
+            # Calculamos qué porcentaje del bloque tiene tinta
+            ink_density = np.sum(block_bin == 255) / block_bin.size
+            
+            # Un umbral pequeño (1% o 2%) suele bastar para detectar una línea fina
+            if ink_density > 0.01: 
                 injection_map[r, c] = 1
 
-            
-
-    porcentaje = (np.sum(injection_map) / (rows * cols)) * 100
-
+    total_nozzles = rows * cols
+    porcentaje = (np.sum(injection_map) / total_nozzles) * 100
     return porcentaje, injection_map
 
 
