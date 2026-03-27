@@ -115,66 +115,57 @@ def process_standard_manual(cropped_image, config):
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # CLAHE mejora contraste local
+    # Contraste local
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     gray = clahe.apply(gray)
 
+    # Suavizado y normalización de fondo
     gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
     bg = cv2.medianBlur(gray_blur, 31)
     norm = cv2.divide(gray_blur, bg, scale=255)
 
+    # Bordes
     edges = cv2.Canny(norm, 30, 100)
 
-    # Morfología para limpiar
+    # Morfología
     kernel_morph = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
     edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel_morph, iterations=1)
-
     kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 1))
     edges = cv2.dilate(edges, kernel_dilate, iterations=1)
 
-    row_strength = np.sum(edges > 0, axis=1)
-    row_strength = row_strength / np.max(row_strength)
+    # Mapas de filas y columnas
+    row_strength = np.sum(edges > 0, axis=1) / np.max(np.sum(edges > 0, axis=1))
+    col_strength = np.sum(edges > 0, axis=0) / np.max(np.sum(edges > 0, axis=0))
 
     rows = config["rows"]
-    h = edges.shape[0]
-    step_h = h / rows
-    margen = 2
-
-    fila_umbral = np.percentile(row_strength, 75) * 0.6
+    cols = config["cols"]
+    h, w = edges.shape
 
     injection_map_rows = np.zeros(rows)
+    injection_map_cols = np.zeros(cols)
+
+    margen = 2
+
+    fila_umbral = 0.08
+    columna_umbral = 0.04
+
+    step_h = h / rows
+    step_w = w / cols
+
     for r in range(rows):
         y1 = max(0, int(r * step_h) - margen)
         y2 = min(h, int((r + 1) * step_h) + margen)
-        segment = row_strength[y1:y2]
-        if len(segment) == 0:
-            continue
-        if np.max(segment) > fila_umbral:
+        if np.max(row_strength[y1:y2]) > fila_umbral:
             injection_map_rows[r] = 1
 
-    col_strength = np.sum(edges > 0, axis=0)
-    col_strength = col_strength / np.max(col_strength)
-    cols = config["cols"]
-    w = edges.shape[1]
-    step_w = w / cols
-
-    columna_umbral = np.percentile(col_strength, 75) * 0.6
-
-    injection_map_cols = np.zeros(cols)
     for c in range(cols):
         x1 = max(0, int(c * step_w) - margen)
         x2 = min(w, int((c + 1) * step_w) + margen)
-        segment = col_strength[x1:x2]
-        if len(segment) == 0:
-            continue
-        if np.max(segment) > columna_umbral:
+        if np.max(col_strength[x1:x2]) > columna_umbral:
             injection_map_cols[c] = 1
 
-    total_nozzles = rows * cols
-    active_nozzles = np.sum(injection_map_rows) * np.sum(injection_map_cols) / (rows * cols) * total_nozzles
-    porcentaje = (active_nozzles / total_nozzles) * 100
-
     injection_map_2d = np.outer(injection_map_rows, injection_map_cols)
+    porcentaje = np.sum(injection_map_2d) / (rows * cols) * 100
 
     return porcentaje, injection_map_2d
 
