@@ -581,28 +581,28 @@ with tab_analisis:
             if len(st.session_state.recortes) >= num_cabezales:
                 st.divider()
                 if st.button("🚀 PROCESAR TODO Y GUARDAR", use_container_width=True):
-                # INICIALIZACIÓN CRÍTICA
-                all_maps = []
-                total_missing = 0
-                total_nodes = 0
+                    # INICIALIZACIÓN CRÍTICA
+                    all_maps = []
+                    total_missing = 0
+                    total_nodes = 0
+                    
+                    with st.spinner("Analizando recortes manuales..."):
+                        config_base = MACHINE_CONFIGS[machine_selected_global].copy()
+                        # Forzamos a que no use recortes internos de la config
+                        config_base['crop_rect'] = None 
                 
-                with st.spinner("Analizando recortes manuales..."):
-                    config_base = MACHINE_CONFIGS[machine_selected_global].copy()
-                    # Forzamos a que no use recortes internos de la config
-                    config_base['crop_rect'] = None 
-            
-                    for h_id in sorted(st.session_state.recortes.keys()):
-                        img_c = st.session_state.recortes[h_id]
-                        
-                        # Llamamos a la nueva función que definimos arriba
-                        mapa, _, msg = process_standard_manual(img_c, config_base)
-                        
-                        if mapa is not None:
-                            all_maps.append({"id": h_id, "mapa": mapa.tolist()})
-                            total_missing += int(np.count_nonzero(mapa == 0))
-                            total_nodes += mapa.size
-                        else:
-                            st.error(f"Error en Cabezal {h_id}: {msg}")
+                        for h_id in sorted(st.session_state.recortes.keys()):
+                            img_c = st.session_state.recortes[h_id]
+                            
+                            # Llamamos a la nueva función que definimos arriba
+                            mapa, _, msg = process_standard_manual(img_c, config_base)
+                            
+                            if mapa is not None:
+                                all_maps.append({"id": h_id, "mapa": mapa.tolist()})
+                                total_missing += int(np.count_nonzero(mapa == 0))
+                                total_nodes += mapa.size
+                            else:
+                                st.error(f"Error en Cabezal {h_id}: {msg}")
             
                     # CÁLCULO FINAL DE SALUD
                     if total_nodes > 0:
