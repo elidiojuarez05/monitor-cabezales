@@ -546,10 +546,12 @@ with tab_analisis:
 
             img_cropped = st_cropper(
                 img_rotated, 
-                realtime_update=True,  # Recomendado para que la variable img_cropped se actualice al mover el cuadro
-                box_color='#FF0000', 
-                aspect_ratio=None, 
-                key=crop_key
+                realtime_update=True, 
+                box_color='#FF0000',  
+                aspect_ratio=None,           # Permite cualquier forma (rectángulo libre)
+                should_resize_out=False,     # Mantiene la resolución original al guardar
+                canvas_height=800,           # Aumenta esto si la imagen es muy larga
+                key=f"crop_vutek_{cabezal_actual}" # Key única por cabezal
             )
             
             # 2. El botón de guardado debe capturar el estado actual de 'img_cropped'
