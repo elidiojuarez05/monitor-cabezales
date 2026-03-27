@@ -1,31 +1,26 @@
 MACHINE_CONFIGS = {
-    "VUTEK PRO": {"cols": 46, "rows": 800, "x_start": 1, "x_end": 46},
-    "VUTEK F4": {"cols": 48, "rows": 700, "x_start": 1, "x_end": 48},
-    "VUTEK H5": {"cols": 28, "rows": 3200, "x_start": 1, "x_end": 28},
-    "DURST 312": {"cols": 16, "rows": 4, "x_start": 20, "x_end": 800},
-    "DURST P10 PLUS": {"cols": 4, "rows": 30, "x_start": 1, "x_end": 302},
-    "FAVUTEK ": {"cols": 4, "rows": 5, "x_start": 20, "x_end": 800},
-    "MIMAKI": {"cols": 4, "rows": 1, "x_start": 35, "x_end": 612},
+
     "EPSON1": {
-    "cols": 6,
-    "rows": 100,
-    "x_start": 35,
-    "x_end": 612,
-    "y_start": 0,
-    "y_end": 1500,
-    "offset_step": 4
-},
+        "cols": 6,
+        "rows": 100,
+        "type": "epson",
+        "offset_step": 4
+    },
+
     "EPSON2": {
-    "cols": 6,
-    "rows": 100,
-    "x_start": 35,
-    "x_end": 612,
-    "y_start": 0,
-    "y_end": 1500,
-    "offset_step": 4
-}
-    "POLAROID": {"cols": 12, "rows": 160, "x_start": 20, "x_end": 800},
-    "GRANDO": {"cols": 32, "rows": 137, "x_start": 1, "x_end": 32},
-    
-    # Agregar  máquinas  con sus parámetros específicos
+        "cols": 6,
+        "rows": 100,
+        "type": "epson",
+        "offset_step": 4
+    },
+
+    "VUTEK PRO": {"cols": 46, "rows": 800, "type": "standard"},
+    "VUTEK F4": {"cols": 48, "rows": 700, "type": "standard"},
+    "VUTEK H5": {"cols": 28, "rows": 3200, "type": "standard"},
+    "DURST 312": {"cols": 16, "rows": 4, "type": "standard"},
+    "DURST P10 PLUS": {"cols": 4, "rows": 30, "type": "standard"},
+    "FAVUTEK": {"cols": 4, "rows": 5, "type": "standard"},
+    "MIMAKI": {"cols": 4, "rows": 1, "type": "standard"},
+    "POLAROID": {"cols": 12, "rows": 160, "type": "standard"},
+    "GRANDO": {"cols": 32, "rows": 137, "type": "standard"},
 }
