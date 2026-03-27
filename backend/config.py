@@ -16,8 +16,8 @@ MACHINE_CONFIGS = {
 
     "VUTEK PRO": {"cols": 46, "rows": 800, "type": "standard"},
     "VUTEK_F4": {
-    "rows": 64,
-    "cols": 320,
+    "rows": 48,   # antes 64
+    "cols": 700,  # antes 320
     "ink_threshold": 0.002
 },
     "VUTEK H5": {"cols": 28, "rows": 3200, "type": "standard"},
