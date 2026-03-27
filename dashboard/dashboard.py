@@ -516,138 +516,86 @@ with tab_planta:
 # TAB 3: ANÁLISIS MANUAL Y CROPPER (VERSIÓN ESTABLE)
 # =========================================================
 with tab_analisis:
-    # 1. Inicialización de Estados de Persistencia
-    if 'analisis_completado' not in st.session_state:
-        st.session_state.analisis_completado = False
-    if 'ultima_salud' not in st.session_state:
-        st.session_state.ultima_salud = 0.0
-    if 'recortes' not in st.session_state:
-        st.session_state.recortes = {}
+    # 1. Estados de persistencia
+    if 'recortes' not in st.session_state: st.session_state.recortes = {}
+    if 'analisis_completado' not in st.session_state: st.session_state.analisis_completado = False
 
-    # --- PANTALLA DE RESULTADOS (Solo se ve al terminar) ---
     if st.session_state.analisis_completado:
-        st.balloons()
         st.success(f"### ✅ ¡{machine_selected_global} Actualizada!")
-        
-        # Mostramos el estatus en grande
-        col_m1, col_m2 = st.columns(2)
-        col_m1.metric("Salud del Cabezal", f"{st.session_state.ultima_salud:.2f}%")
-        col_m2.info("Los datos han sido sincronizados con la base de datos correctamente.")
-        
-        if st.button("🔄 Cargar otro test (Limpiar todo)"):
+        st.metric("Salud Final", f"{st.session_state.get('ultima_salud', 0):.2f}%")
+        if st.button("🔄 Nuevo Análisis"):
             st.session_state.analisis_completado = False
             st.session_state.recortes = {}
-            st.session_state.ultima_salud = 0.0
             st.rerun()
-        
-        st.stop() # CRÍTICO: Detiene el script aquí. No lee nada de lo que sigue abajo.
+        st.stop()
 
-    # --- PANTALLA DE EDICIÓN (Solo se ve si no ha terminado) ---
-    st.info("Sube la imagen de la Vutek, ajústala y guarda cada cabezal.")
-    
-    uploaded_file = st.file_uploader("Subir imagen del test", type=['jpg', 'png', 'jpeg'], key="up_vutek_final")
+    uploaded_file = st.file_uploader("Subir Test Vutek", type=['jpg', 'png', 'jpeg'], key="up_vutek_final")
 
     if uploaded_file:
+        # Usamos cache para que la rotación no sea lenta
         img_raw = Image.open(uploaded_file)
+        grados = st.sidebar.slider("Rotación Fina", -10.0, 10.0, 0.0, step=0.1) # Slider en sidebar para no mover el cropper
+        img_rotated = img_raw.rotate(grados, expand=True)
+
         col_edit, col_prev = st.columns([2, 1])
 
         with col_edit:
-            st.subheader("1. Ajuste de Imagen")
-            grados = st.slider("Girar (grados)", -180, 180, 0, key="slider_vutek")
-            img_rotated = img_raw.rotate(grados, expand=True)
+            num_cabezales = st.number_input("Total cabezales", 1, 10, 2)
+            cabezal_actual = st.selectbox("Recortando cabezal:", range(1, num_cabezales + 1))
             
-            st.subheader("2. Selección de Cabezales")
-            num_cabezales = st.number_input("¿Cuántos cabezales vas a recortar?", min_value=1, value=2)
-            cabezal_actual = st.selectbox("Cabezal actual:", range(1, num_cabezales + 1))
-            
-            # realtime_update=False para que NO parpadee al mover el mouse
+            # --- EL CROPPER ---
+            # realtime_update=False es VITAL para que respete tu selección
             img_cropped = st_cropper(
                 img_rotated, 
                 realtime_update=False, 
                 box_color='#FF0000', 
                 aspect_ratio=None, 
-                key=f"crop_final_{cabezal_actual}"
+                key=f"crop_vutek_{cabezal_actual}" # Key única evita que se resetee al cambiar de cabezal
             )
             
-            if st.button(f"💾 Guardar Cabezal {cabezal_actual}", type="primary"):
-                st.session_state.recortes[cabezal_actual] = img_cropped.copy()
-                st.toast(f"Cabezal {cabezal_actual} capturado.")
+            if st.button(f"💾 Confirmar Recorte Cabezal {cabezal_actual}"):
+                st.session_state.recortes[cabezal_actual] = img_cropped
+                st.toast(f"Cabezal {cabezal_actual} guardado temporalmente")
 
         with col_prev:
-            st.subheader("Vista Previa")
+            st.subheader("Seleccionados")
             for h_id in sorted(st.session_state.recortes.keys()):
-                st.image(st.session_state.recortes[h_id], caption=f"Cabezal {h_id}")
+                st.image(st.session_state.recortes[h_id], caption=f"H-{h_id}", width=150)
             
             if len(st.session_state.recortes) >= num_cabezales:
-                st.divider()
-                if st.button("🚀 PROCESAR TODO Y GUARDAR", use_container_width=True):
-                    # INICIALIZACIÓN CRÍTICA
+                if st.button("🚀 PROCESAR Y SINCRONIZAR", type="primary"):
                     all_maps = []
-                    total_missing = 0
-                    total_nodes = 0
+                    t_missing = 0
+                    t_nodes = 0
                     
-                    with st.spinner("Analizando recortes manuales..."):
-                        config_base = MACHINE_CONFIGS[machine_selected_global].copy()
-                        # Forzamos a que no use recortes internos de la config
-                        config_base['crop_rect'] = None 
-                
-                        for h_id in sorted(st.session_state.recortes.keys()):
-                            img_c = st.session_state.recortes[h_id]
-                            
-                            # Llamamos a la nueva función que definimos arriba
-                            mapa, _, msg = process_standard_manual(img_c, config_base)
-                            
-                            if mapa is not None:
-                                all_maps.append({"id": h_id, "mapa": mapa.tolist()})
-                                total_missing += int(np.count_nonzero(mapa == 0))
-                                total_nodes += mapa.size
-                            else:
-                                st.error(f"Error en Cabezal {h_id}: {msg}")
-            
-                    # CÁLCULO FINAL DE SALUD
-                    if total_nodes > 0:
-                        salud_final = ((total_nodes - total_missing) / total_nodes) * 100
-                        st.session_state.ultima_salud = salud_final
-                        st.session_state.analisis_completado = True
+                    config_base = MACHINE_CONFIGS[machine_selected_global].copy()
+                    
+                    for h_id, img_c in st.session_state.recortes.items():
+                        # Procesar con la función manual
+                        mapa = process_standard_manual(img_c, config_base)
                         
-                        
-                        # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
-                        if all_maps and img_res_final is not None:
-                            salud_final = float(((t_nodes - t_missing) / t_nodes) * 100)
-                            img_pil_res = Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB))
-                            ruta_final = guardar_evidencia_fisica(img_pil_res, machine_selected_global)
-                            map_json_total = json.dumps(all_maps)
+                        m_missing = int(np.count_nonzero(mapa == 0))
+                        t_missing += m_missing
+                        t_nodes += mapa.size
+                        all_maps.append({"id": h_id, "mapa": mapa.tolist()})
 
-                            # Armamos los parámetros justo antes de enviarlos
-                            params = {
-                                "m": str(machine_selected_global),
-                                "s": float(salud_final),
-                                "n": int(t_missing),
-                                "map": str(map_json_total),
-                                "e": str(ruta_final)
-                            }
-                            
-                            exito = commit_db("""
-                                INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
-                                VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
-                            """, params)
-
-                            # --- DENTRO DEL BOTÓN DE PROCESAMIENTO TOTAL ---
-                            if exito:
-                                # 1. Limpiamos los recortes PRIMERO
-                                st.session_state.recortes = {}
-                                st.session_state.editando_manual = False
-                                
-                                # 2. Usamos un flag para detener el renderizado del cropper
-                                st.success(f"✅ ¡{machine_selected_global} Actualizada!")
-                                st.balloons()
-                                
-                                # 3. En lugar de un rerun inmediato que puede buclear, 
-                                # usa un botón para que el usuario regrese o limpia el file_uploader
-                                if st.button("Finalizar y Limpiar Pantalla"):
-                                    st.rerun()
-    else:
-        st.info("Seleccione una imagen para comenzar.")                                    
+                    # Cálculos finales corregidos
+                    salud_final = ((t_nodes - t_missing) / t_nodes) * 100
+                    st.session_state.ultima_salud = salud_final
+                    
+                    # --- GUARDADO EN DB ---
+                    map_json = json.dumps(all_maps)
+                    params = {
+                        "m": machine_selected_global,
+                        "s": salud_final,
+                        "n": t_missing,
+                        "map": map_json
+                    }
+                    
+                    commit_db("INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, timestamp) VALUES (:m, :s, :n, :map, CURRENT_TIMESTAMP)", params)
+                    
+                    st.session_state.analisis_completado = True
+                    st.rerun()                                 
 
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
