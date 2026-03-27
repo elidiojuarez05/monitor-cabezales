@@ -111,16 +111,28 @@ def process_standard_manual(cropped_image, config):
     import numpy as np
     from PIL import Image
 
-    # Asegurar que es PIL.Image
+    # -----------------------
+    # Convertir a PIL.Image si es np.ndarray
+    # -----------------------
     if isinstance(cropped_image, np.ndarray):
-        cropped_image = Image.fromarray(cropped_image)
+        # Si viene en RGB
+        if cropped_image.ndim == 3 and cropped_image.shape[2] == 3:
+            cropped_image = Image.fromarray(cropped_image)
+        else:
+            # Escala de grises
+            cropped_image = Image.fromarray(cropped_image.astype(np.uint8))
     elif not isinstance(cropped_image, Image.Image):
         raise ValueError("process_standard_manual: cropped_image debe ser PIL.Image o np.ndarray")
 
-    # Convertir a array OpenCV
+    # -----------------------
+    # Convertir a OpenCV BGR
+    # -----------------------
     img = np.array(cropped_image.convert('RGB'))
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
+    # -----------------------
+    # Procesamiento estándar
+    # -----------------------
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # Mejor contraste local
