@@ -583,32 +583,44 @@ with tab_analisis:
                 
                 # --- BOTÓN FINAL DE PROCESAMIENTO ---
                 # --- BOTÓN FINAL DE PROCESAMIENTO CORREGIDO ---
-                if st.button("🚀 INICIAR PROCESAMIENTO TOTAL Y SINCRONIZAR", use_container_width=True, type="secondary"):
-                    if len(st.session_state.recortes) < num_cabezales:
-                        st.error(f"❌ Faltan recortes. Has guardado {len(st.session_state.recortes)} de {num_cabezales} cabezales.")
-                    else:
-                        map_json_total = "[]"
-                        all_maps = []
-                        t_missing = 0
-                        t_nodes = 0
-                        
-                        with st.spinner("Procesando matriz de nozzles..."):
-                            # 1. Obtener config y crear una copia temporal sin recortes fijos
-                            config_base = MACHINE_CONFIGS[machine_selected_global].copy()
-                            config_base['crop_rect'] = None # CRÍTICO: Evita el doble recorte
-                            
-                            img_res_final = None
-                            
-                            for h_id in sorted(st.session_state.recortes.keys()):
-                                img_c = st.session_state.recortes[h_id] # Aquí usamos el nombre correcto de tu dict
-                                img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
-                                
-                                # Usamos una ruta temporal segura
-                                temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
-                                cv2.imwrite(temp_path, img_cv)
-                                
-                                # 2. Procesar con la config que no tiene crop_rect
-                                mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config_base, sensibilidad)
+                # --- BUSCA LA SECCIÓN DE ANÁLISIS MANUAL EN TU DASHBOARD.PY ---
+                if st.button("🔍 PROCESAR RECORTE MANUAL"):
+                    try:
+                        # 1. Recuperar la configuración base de la máquina seleccionada
+                        from config import MACHINE_CONFIGS
+                        maquina_nombre = st.session_state.get('maquina_seleccionada', 'DURST P10 PLUS')
+                        base_config = MACHINE_CONFIGS.get(maquina_nombre, {"cols": 4, "rows": 20})
+                
+                        # 2. CREAR CONFIGURACIÓN "LIMPIA" PARA EL RECORTE
+                        # Esto es vital: Ignoramos los recortes automáticos de config.py 
+                        # porque TÚ ya hiciste el recorte con el mouse.
+                        config_para_procesar = {
+                            "cols": base_config['cols'], 
+                            "rows": base_config['rows'],
+                            "crop_rect": None  # <--- Indispensable para que no se desfase
+                        }
+                
+                        # 3. LLAMAR AL PROCESADOR
+                        # Usamos la sensibilidad del slider (ej. 20)
+                        from image_processor import process_test_image_v2
+                        mapa, img_res, msg = process_test_image_v2(
+                            st.session_state.temp_image_path, 
+                            config_para_procesar, 
+                            st.session_state.get('sensibilidad', 20)
+                        )
+                
+                        if mapa is not None:
+                            st.image(img_res, caption="Resultado del Escaneo Inteligente", use_container_width=True)
+                            # Calcular salud
+                            total = mapa.size
+                            buenos = np.sum(mapa)
+                            salud = (buenos / total) * 100
+                            st.metric("Salud del Cabezal", f"{salud:.1f}%")
+                        else:
+                            st.error(f"Error: {msg}")
+                
+                    except Exception as e:
+                        st.error(f"Hubo un error al procesar: {e}")
                             
                             # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
                             if all_maps and img_res_final is not None:
