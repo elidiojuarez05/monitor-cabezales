@@ -513,22 +513,40 @@ with tab_planta:
             with cols[j]: render_machine_card(m_name, fecha_consulta, suffix="gral")
 
 # =========================================================
-# TAB 3: ANÁLISIS MANUAL Y CROPPER (OPTIMIZADO)
+# TAB 3: ANÁLISIS MANUAL Y CROPPER (AUTOLIMPIEZA)
 # =========================================================
 with tab_analisis:
+    # 1. Inicializar variables de control en session_state
+    if 'procesado_finalizado' not in st.session_state:
+        st.session_state.procesado_finalizado = False
+    if 'uploader_key' not in st.session_state:
+        st.session_state.uploader_key = 0
+
+    # BOTÓN PARA VOLVER A EMPEZAR (Solo aparece al terminar)
+    if st.session_state.procesado_finalizado:
+        st.success(f"✅ Procesamiento completado")
+        if st.button("🔄 Cargar nuevo test / Limpiar"):
+            st.session_state.procesado_finalizado = False
+            st.session_state.recortes = {}
+            st.session_state.uploader_key += 1 # Esto destruye el uploader anterior y limpia el archivo
+            st.rerun()
+        st.stop() # Detiene la ejecución aquí para no mostrar el cropper de nuevo
+
     st.info("Sube una imagen, rótala y recorta los cabezales.")
     
-    if 'recortes' not in st.session_state:
-        st.session_state.recortes = {}
-
-    uploaded_file = st.file_uploader("Subir imagen del test", type=['jpg', 'png', 'jpeg'], key="up_manual")
+    # 2. Uploader con Key Dinámica (para poder limpiarlo)
+    uploaded_file = st.file_uploader(
+        "Subir imagen del test", 
+        type=['jpg', 'png', 'jpeg'], 
+        key=f"up_manual_{st.session_state.uploader_key}"
+    )
     
-    # Creamos las columnas FUERA del if para que siempre existan
     col_edit, col_prev = st.columns([2, 1])
     
-    with col_edit:
-        if uploaded_file:
-            img_raw = Image.open(uploaded_file)
+    if uploaded_file:
+        img_raw = Image.open(uploaded_file)
+        
+        with col_edit:
             st.subheader("1. Ajuste y Rotación")
             grados = st.slider("Girar imagen", -180, 180, 0, key="rotate_slider")
             img_rotated = img_raw.rotate(grados, expand=True, resample=Image.BICUBIC)
@@ -538,103 +556,99 @@ with tab_analisis:
             num_cabezales = st.number_input("Número de cabezales", min_value=1, value=2)
             cabezal_actual = st.selectbox("Cabezal a recortar:", range(1, num_cabezales + 1))
             
+            # CROPPER
             img_cropped = st_cropper(
                 img_rotated, 
                 realtime_update=True, 
                 box_color='#FF0000', 
                 aspect_ratio=None, 
-                key=f"vutek_crop_{cabezal_actual}"
+                key=f"vutek_crop_{cabezal_actual}_{st.session_state.uploader_key}"
             )
             
             if st.button(f"💾 Guardar Recorte {cabezal_actual}", type="primary"):
                 st.session_state.recortes[cabezal_actual] = img_cropped.copy()
                 st.toast(f"✅ Cabezal {cabezal_actual} guardado")
-        else:
-            st.info("Esperando imagen...")
 
-    # ESTA SECCIÓN ESTABA MAL IDENTADA
-    with col_prev:
-        st.subheader("Vista Previa")
-        if st.session_state.recortes:
+        with col_prev:
+            st.subheader("Vista Previa")
             for h_id in sorted(st.session_state.recortes.keys()):
                 st.image(st.session_state.recortes[h_id], caption=f"Cabezal {h_id}")
             
-            st.divider()
-
-# --- BOTÓN FINAL DE PROCESAMIENTO ---
-            if st.button("🚀 INICIAR PROCESAMIENTO TOTAL Y SINCRONIZAR", use_container_width=True, type="secondary"):
-                if len(st.session_state.recortes) < num_cabezales:
-                    st.error(f"❌ Faltan recortes. Has guardado {len(st.session_state.recortes)} de {num_cabezales} cabezales.")
-                else:
-                    map_json_total = "[]"
-                    all_maps = []
-                    t_missing = 0
-                    t_nodes = 0
-                    
-                    with st.spinner("Procesando matriz de nozzles..."):
-                        # 1. Obtener config y crear una copia temporal sin recortes fijos
-                        config_base = MACHINE_CONFIGS[machine_selected_global].copy()
-                        config_base['crop_rect'] = None # CRÍTICO: Evita el doble recorte
+            if len(st.session_state.recortes) > 0:
+                st.divider()
+                if st.button("🚀 INICIAR PROCESAMIENTO TOTAL", use_container_width=True):
+                    if len(st.session_state.recortes) < num_cabezales:
+                        st.error(f"❌ Faltan recortes ({len(st.session_state.recortes)}/{num_cabezales})")
+                    else:
+                        map_json_total = "[]"
+                        all_maps = []
+                        t_missing = 0
+                        t_nodes = 0
                         
-                        img_res_final = None
-                        
-                        for h_id in sorted(st.session_state.recortes.keys()):
-                            img_c = st.session_state.recortes[h_id] # Aquí usamos el nombre correcto de tu dict
-                            img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
+                        with st.spinner("Procesando matriz de nozzles..."):
+                            # 1. Obtener config y crear una copia temporal sin recortes fijos
+                            config_base = MACHINE_CONFIGS[machine_selected_global].copy()
+                            config_base['crop_rect'] = None # CRÍTICO: Evita el doble recorte
                             
-                            # Usamos una ruta temporal segura
-                            temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
-                            cv2.imwrite(temp_path, img_cv)
+                            img_res_final = None
                             
-                            # 2. Procesar con la config que no tiene crop_rect
-                            mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config_base, sensibilidad)
-                            
-                            if mapa is not None:
-                                all_maps.append({"id": h_id, "mapa": mapa.tolist()})
-                                img_res_final = img_res
-                                t_missing += int(np.count_nonzero(mapa == 0))
-                                t_nodes += mapa.size
-                            else:
-                                st.error(f"❌ Error procesando Cabezal {h_id}: {msg}")
-                                break
-                        
-                        # ... (resto de tu lógica de guardado en DB se mantiene igual)
-                        
-                        # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
-                        if all_maps and img_res_final is not None:
-                            salud_final = float(((t_nodes - t_missing) / t_nodes) * 100)
-                            img_pil_res = Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB))
-                            ruta_final = guardar_evidencia_fisica(img_pil_res, machine_selected_global)
-                            map_json_total = json.dumps(all_maps)
-
-                            # Armamos los parámetros justo antes de enviarlos
-                            params = {
-                                "m": str(machine_selected_global),
-                                "s": float(salud_final),
-                                "n": int(t_missing),
-                                "map": str(map_json_total),
-                                "e": str(ruta_final)
-                            }
-                            
-                            exito = commit_db("""
-                                INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
-                                VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
-                            """, params)
-
-                            # --- DENTRO DEL BOTÓN DE PROCESAMIENTO TOTAL ---
-                            if exito:
-                                # 1. Limpiamos los recortes PRIMERO
-                                st.session_state.recortes = {}
-                                st.session_state.editando_manual = False
+                            for h_id in sorted(st.session_state.recortes.keys()):
+                                img_c = st.session_state.recortes[h_id] # Aquí usamos el nombre correcto de tu dict
+                                img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
                                 
-                                # 2. Usamos un flag para detener el renderizado del cropper
-                                st.success(f"✅ ¡{machine_selected_global} Actualizada!")
-                                st.balloons()
+                                # Usamos una ruta temporal segura
+                                temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
+                                cv2.imwrite(temp_path, img_cv)
                                 
-                                # 3. En lugar de un rerun inmediato que puede buclear, 
-                                # usa un botón para que el usuario regrese o limpia el file_uploader
-                                if st.button("Finalizar y Limpiar Pantalla"):
-                                    st.rerun()
+                                # 2. Procesar con la config que no tiene crop_rect
+                                mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config_base, sensibilidad)
+                                
+                                if mapa is not None:
+                                    all_maps.append({"id": h_id, "mapa": mapa.tolist()})
+                                    img_res_final = img_res
+                                    t_missing += int(np.count_nonzero(mapa == 0))
+                                    t_nodes += mapa.size
+                                else:
+                                    st.error(f"❌ Error procesando Cabezal {h_id}: {msg}")
+                                    break
+                            
+                            # ... (resto de tu lógica de guardado en DB se mantiene igual)
+                            
+                            # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
+                            if all_maps and img_res_final is not None:
+                                salud_final = float(((t_nodes - t_missing) / t_nodes) * 100)
+                                img_pil_res = Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB))
+                                ruta_final = guardar_evidencia_fisica(img_pil_res, machine_selected_global)
+                                map_json_total = json.dumps(all_maps)
+    
+                                # Armamos los parámetros justo antes de enviarlos
+                                params = {
+                                    "m": str(machine_selected_global),
+                                    "s": float(salud_final),
+                                    "n": int(t_missing),
+                                    "map": str(map_json_total),
+                                    "e": str(ruta_final)
+                                }
+                                
+                                exito = commit_db("""
+                                    INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
+                                    VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
+                                """, params)
+    
+                                # --- DENTRO DEL BOTÓN DE PROCESAMIENTO TOTAL ---
+                                if exito:
+                                    # 1. Limpiamos los recortes PRIMERO
+                                    st.session_state.recortes = {}
+                                    st.session_state.editando_manual = False
+                                    
+                                    # 2. Usamos un flag para detener el renderizado del cropper
+                                    st.success(f"✅ ¡{machine_selected_global} Actualizada!")
+                                    st.balloons()
+                                    
+                                    # 3. En lugar de un rerun inmediato que puede buclear, 
+                                    # usa un botón para que el usuario regrese o limpia el file_uploader
+                                    if st.button("Finalizar y Limpiar Pantalla"):
+                                        st.rerun()
 
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
