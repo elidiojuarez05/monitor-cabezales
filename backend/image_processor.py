@@ -26,7 +26,7 @@ def process_test_image_v2(image_path, config, sens_umbral=50):
 
     # DILATACIÓN: Engrosamos la tinta un poco para que el sensor no la pierda
     kernel = np.ones((3,3), np.uint8)
-    thresh = cv2.dilate(thresh, kernel, iterations=1)
+    #thresh = cv2.dilate(thresh, kernel, iterations=1)
 
     rows, cols = config['rows'], config['cols']
     h_roi, w_roi = thresh.shape
@@ -45,12 +45,12 @@ def process_test_image_v2(image_path, config, sens_umbral=50):
             slot = thresh[y1:y2, x1:x2]
             
             if slot.size > 0:
-                white_ratio = np.sum(slot == 255) / slot.size
-                if white_ratio > umbral_real:
+                pixel_count = np.sum(slot == 255)
+
+                if pixel_count > 10:
                     injection_map[r, c] = 1
-                    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), -1)
                 else:
-                    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), 1)
+                    injection_map[r, c] = 0
 
     img_res = cv2.addWeighted(overlay, 0.3, img_final, 0.7, 0)
     return injection_map, img_res, "OK"
