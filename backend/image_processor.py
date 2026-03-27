@@ -114,18 +114,16 @@ def process_standard_manual(cropped_image, config):
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.equalizeHist(gray)  # mejora contraste
 
-    # 1. Normalizar iluminación para evitar reflejos
     gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
     bg = cv2.medianBlur(gray_blur, 31)
     norm = cv2.divide(gray_blur, bg, scale=255)
 
-    # 2. Detectar bordes, enfocado en líneas horizontales
     edges = cv2.Canny(norm, 30, 100)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 1))
     edges = cv2.dilate(edges, kernel, iterations=1)
 
-    # 3. Proyección horizontal para filas (rows)
     row_strength = np.sum(edges > 0, axis=1)
     row_strength = row_strength / np.max(row_strength)
 
@@ -134,17 +132,18 @@ def process_standard_manual(cropped_image, config):
     step_h = h / rows
 
     injection_map_rows = np.zeros(rows)
+    fila_umbral = 0.05
+    margen = 2
 
     for r in range(rows):
-        y1 = int(r * step_h)
-        y2 = int((r + 1) * step_h)
+        y1 = max(0, int(r * step_h) - margen)
+        y2 = min(h, int((r + 1) * step_h) + margen)
         segment = row_strength[y1:y2]
         if len(segment) == 0:
             continue
-        if np.max(segment) > 0.08:
+        if np.max(segment) > fila_umbral:
             injection_map_rows[r] = 1
 
-    # 4. Proyección vertical para columnas (cols)
     col_strength = np.sum(edges > 0, axis=0)
     col_strength = col_strength / np.max(col_strength)
 
@@ -153,23 +152,21 @@ def process_standard_manual(cropped_image, config):
     step_w = w / cols
 
     injection_map_cols = np.zeros(cols)
+    columna_umbral = 0.03
 
     for c in range(cols):
-        x1 = int(c * step_w)
-        x2 = int((c + 1) * step_w)
+        x1 = max(0, int(c * step_w) - margen)
+        x2 = min(w, int((c + 1) * step_w) + margen)
         segment = col_strength[x1:x2]
         if len(segment) == 0:
             continue
-        if np.max(segment) > 0.05:  # más sensible para columnas
+        if np.max(segment) > columna_umbral:
             injection_map_cols[c] = 1
 
-    # 5. Combinar ambos mapas para obtener porcentaje total de nozzles activos
     total_nozzles = rows * cols
     active_nozzles = np.sum(injection_map_rows) * np.sum(injection_map_cols) / (rows * cols) * total_nozzles
     porcentaje = (active_nozzles / total_nozzles) * 100
 
-    # También puedes devolver el mapa 2D real:
-    # Por ejemplo, crear un mapa 2D con 1 si fila y columna están activas simultáneamente
     injection_map_2d = np.outer(injection_map_rows, injection_map_cols)
 
     return porcentaje, injection_map_2d
@@ -194,3 +191,16 @@ def process_test_image_v2(image, machine_name):
 
     else:
         return process_standard_manual(aligned, config)
+
+
+
+import matplotlib.pyplot as plt
+import streamlit as st
+
+porcentaje, mapa = process_standard_manual(cropped_image, MACHINE_CONFIGS["VUTEK_F4"])
+
+st.write(f"Salud estimada: {porcentaje:.2f}%")
+fig, ax = plt.subplots(figsize=(10, 6))
+ax.imshow(mapa, cmap='Greys', interpolation='none')
+ax.set_title("Mapa 2D de Nozzles")
+st.pyplot(fig)
