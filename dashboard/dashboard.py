@@ -562,16 +562,22 @@ with tab_analisis:
                     try:
                         from config import MACHINE_CONFIGS
                         from image_processor import process_test_image_v2
-                        import tempfile
-
-                        # 1. Obtener el nombre de la máquina
-                        maquina_nombre = st.session_state.get('maquina_seleccionada', 'DURST P10 PLUS')
                         
-                        # 2. DEFINIR base_config (Aquí estaba el error)
-                        # Buscamos la configuración en el diccionario; si no existe, usamos una por defecto
-                        base_config = MACHINE_CONFIGS.get(maquina_nombre, {"cols": 4, "rows": 20})
+                        # 1. FORZAMOS obtener lo que seleccionaste en el Sidebar
+                        maquina_actual = st.session_state.get('maquina_seleccionada')
                         
-                        st.write(f"⚙️ Procesando con la configuración de: {maquina_nombre} ({base_config['cols']}x{base_config['rows']})")
+                        if not maquina_actual:
+                            st.error("❌ No hay ninguna máquina seleccionada en el menú global.")
+                            st.stop()
+                
+                        # 2. CARGAMOS la configuración de esa máquina específica (Epson1, por ejemplo)
+                        base_config = MACHINE_CONFIGS.get(maquina_actual)
+                        
+                        if not base_config:
+                            st.error(f"❌ No se encontró configuración para {maquina_actual} en config.py")
+                            st.stop()
+                
+                        st.info(f"Procesando como: {maquina_actual} (Filas: {base_config['rows']})")
                         
                         all_maps = {}
                         t_nodes = 0
