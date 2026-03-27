@@ -1,133 +1,195 @@
 import cv2
 import numpy as np
+from config import MACHINE_CONFIGS
 
-def process_test_image_v2(image_path, config, sens_umbral=0.02):
-    img = cv2.imread(image_path)
-    if img is None:
-        return None, None, "Error de lectura"
+# ===============================
+# 🔧 AUTO ALIGN (corrige inclinación)
+# ===============================
+def auto_align_image(img):
 
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 150)
 
-    # =====================================================
-    # 1. PREPROCESAMIENTO (MEJOR DETECCIÓN DE TINTA)
-    # =====================================================
-    b, g, r = cv2.split(img_rgb)
-    bg_comb = cv2.addWeighted(b, 0.7, g, 0.3, 0)
+    lines = cv2.HoughLines(edges, 1, np.pi/180, 200)
 
-    blur = cv2.bilateralFilter(bg_comb, 9, 75, 75)
+    angle = 0
+    if lines is not None:
+        angles = []
+        for rho, theta in lines[:,0]:
+            deg = (theta * 180 / np.pi) - 90
+            angles.append(deg)
 
-    thresh_adapt = cv2.adaptiveThreshold(
-        blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-        cv2.THRESH_BINARY_INV, 35, 10
-    )
+        angle = np.median(angles)
 
-    # =====================================================
-    # 2. ALINEACIÓN AUTOMÁTICA
-    # =====================================================
-    sobel_y = cv2.Sobel(thresh_adapt, cv2.CV_64F, 0, 1, ksize=3)
-    sobel_y = cv2.convertScaleAbs(sobel_y)
-
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    morph = cv2.morphologyEx(sobel_y, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    if len(contours) == 0:
-        return None, None, "No se detectaron contornos"
-
-    c = max(contours, key=cv2.contourArea)
-    rect = cv2.minAreaRect(c)
-    (_, _), (_, _), angle = rect
-
-    if angle < -45:
-        angle = 90 + angle
-
-    (h_img, w_img) = img_rgb.shape[:2]
-    M = cv2.getRotationMatrix2D((w_img // 2, h_img // 2), angle, 1.0)
+    h, w = img.shape[:2]
+    M = cv2.getRotationMatrix2D((w//2, h//2), angle, 1.0)
 
     aligned = cv2.warpAffine(
-        img_rgb, M, (w_img, h_img),
+        img, M, (w, h),
         flags=cv2.INTER_CUBIC,
         borderMode=cv2.BORDER_REPLICATE
     )
 
-    # =====================================================
-    # 3. ROI DINÁMICO (USA CONFIG)
-    # =====================================================
-    cols = config.get("cols", 6)
-    rows = config.get("rows", 100)
+    return aligned
 
-    x_start = config.get("x_start", 0)
-    x_end = config.get("x_end", aligned.shape[1])
-    y_start = config.get("y_start", 0)
-    y_end = config.get("y_end", aligned.shape[0])
 
-    roi = aligned[y_start:y_end, x_start:x_end]
+# ===============================
+# 🔍 AUTO ROI (detecta zona útil)
+# ===============================
+def detect_roi_auto(img):
 
-    h_roi, w_roi, _ = roi.shape
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    block_w = w_roi // cols
-    block_h = h_roi // rows
+    _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
 
-    # =====================================================
-    # 4. OFFSET PARA CABEZALES ESCALONADOS
-    # =====================================================
+    contours, _ = cv2.findContours(
+        thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+
+    if not contours:
+        return img
+
+    c = max(contours, key=cv2.contourArea)
+    x, y, w, h = cv2.boundingRect(c)
+
+    return img[y:y+h, x:x+w]
+
+
+# ===============================
+# 🟣 EPSON (especial)
+# ===============================
+def process_epson(img, config):
+
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    # mejor contraste cyan
+    b, g, r = cv2.split(img_rgb)
+    bg = cv2.addWeighted(b, 0.7, g, 0.3, 0)
+
+    blur = cv2.bilateralFilter(bg, 9, 75, 75)
+
+    thresh = cv2.adaptiveThreshold(
+        blur, 255,
+        cv2.ADAPTIVE_THRESH_MEAN_C,
+        cv2.THRESH_BINARY_INV,
+        35, 10
+    )
+
+    sobel = cv2.Sobel(thresh, cv2.CV_64F, 0, 1, ksize=3)
+    sobel = cv2.convertScaleAbs(sobel)
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    morph = cv2.morphologyEx(sobel, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+    roi = detect_roi_auto(img_rgb)
+
+    rows = config["rows"]
+    cols = config["cols"]
+
+    h, w, _ = roi.shape
+    block_w = w // cols
+    block_h = h // rows
+
     offset_step = config.get("offset_step", 4)
-    column_offsets_y = [c * offset_step for c in range(cols)]
+    offsets = [c * offset_step for c in range(cols)]
 
-    injection_map = np.zeros((rows, cols), dtype=int)
-    overlay = aligned.copy()
+    injection_map = np.zeros((rows, cols))
 
-    # =====================================================
-    # 5. ANÁLISIS POR BLOQUE (ROBUSTO)
-    # =====================================================
     for r in range(rows):
         for c in range(cols):
 
-            y_offset = column_offsets_y[c]
+            y_offset = offsets[c]
 
             x1 = c * block_w
-            x2 = (c + 1) * block_w if c < cols - 1 else w_roi
+            x2 = (c + 1) * block_w
 
             y1 = r * block_h + y_offset
             y2 = (r + 1) * block_h + y_offset
 
-            if y2 > h_roi:
+            if y2 > h:
                 continue
 
             block = roi[y1:y2, x1:x2]
 
-            if block.size == 0:
-                continue
-
             gray = cv2.cvtColor(block, cv2.COLOR_RGB2GRAY)
+
             blur = cv2.bilateralFilter(gray, 7, 50, 50)
 
-            thresh = cv2.adaptiveThreshold(
+            th = cv2.adaptiveThreshold(
                 blur, 255,
                 cv2.ADAPTIVE_THRESH_MEAN_C,
                 cv2.THRESH_BINARY_INV,
                 35, 10
             )
 
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-            morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
+            morph2 = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=1)
 
-            # 🔥 CLAVE: detección robusta (NO ratio débil)
-            pixel_count = np.sum(morph == 255)
+            white_ratio = np.sum(morph2 == 255) / morph2.size
 
-            if pixel_count > 10:
+            if white_ratio > 0.005:
                 injection_map[r, c] = 1
-            else:
-                injection_map[r, c] = 0
 
-            # Overlay visual
-            x1_off = x1 + x_start
-            x2_off = x2 + x_start
-            y1_off = y1 + y_start
-            y2_off = y2 + y_start
+    porcentaje = (np.sum(injection_map) / (rows * cols)) * 100
 
-            color = (0, 255, 0) if injection_map[r, c] else (255, 0, 0)
-            cv2.rectangle(overlay, (x1_off, y1_off), (x2_off, y2_off), color, 1)
+    return porcentaje, injection_map
 
-    return injection_map, overlay, "OK"
+
+# ===============================
+# 🔵 STANDARD (VUTEK, DURST, etc.)
+# ===============================
+def process_standard(img, config):
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY_INV)
+
+    roi = detect_roi_auto(thresh)
+
+    rows = config["rows"]
+    cols = config["cols"]
+
+    h, w = roi.shape
+    block_w = w // cols
+    block_h = h // rows
+
+    injection_map = np.zeros((rows, cols))
+
+    for r in range(rows):
+        for c in range(cols):
+
+            x1 = c * block_w
+            x2 = (c + 1) * block_w
+            y1 = r * block_h
+            y2 = (r + 1) * block_h
+
+            block = roi[y1:y2, x1:x2]
+
+            white_ratio = np.sum(block == 255) / block.size
+
+            if white_ratio > 0.1:
+                injection_map[r, c] = 1
+
+    porcentaje = (np.sum(injection_map) / (rows * cols)) * 100
+
+    return porcentaje, injection_map
+
+
+# ===============================
+# 🚀 FUNCIÓN PRINCIPAL
+# ===============================
+def process_test_image_v2(image, machine_name):
+
+    if machine_name not in MACHINE_CONFIGS:
+        raise ValueError(f"Máquina no configurada: {machine_name}")
+
+    config = MACHINE_CONFIGS[machine_name]
+
+    # 🔧 1. Alinear imagen
+    aligned = auto_align_image(image)
+
+    # 🔍 2. Seleccionar tipo
+    if config.get("type") == "epson":
+        return process_epson(aligned, config)
+
+    else:
+        return process_standard(aligned, config)
