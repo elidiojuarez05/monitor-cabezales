@@ -107,80 +107,67 @@ def process_epson(img, config):
 # 🔵 STANDARD (VUTEK, DURST, etc.)
 # ===============================
 def process_standard_manual(cropped_image, config):
-    """
-    Versión ROBUSTA para Vutek / Durst
-    - Detecta líneas finas
-    - Tolera variación de iluminación
-    - Reduce falsos negativos
-    """
 
-    # =========================
-    # 1. CONVERSIÓN
-    # =========================
     img_cv = np.array(cropped_image.convert('RGB'))
     img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
 
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
 
     # =========================
-    # 2. PREPROCESADO (CLAVE)
+    # PREPROCESADO FUERTE
     # =========================
-    # Suavizado leve (reduce ruido sin perder líneas)
     gray = cv2.GaussianBlur(gray, (3, 3), 0)
 
-    # Aumentar contraste local (MUY IMPORTANTE en Vutek)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8,8))
     gray = clahe.apply(gray)
 
-    # =========================
-    # 3. BINARIZACIÓN ROBUSTA
-    # =========================
     _, thresh = cv2.threshold(
         gray, 0, 255,
         cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
     )
 
-    # =========================
-    # 4. ENGROSAR LÍNEAS (CLAVE)
-    # =========================
+    # Engrosar líneas
     kernel = np.ones((2,2), np.uint8)
     thresh = cv2.dilate(thresh, kernel, iterations=1)
 
     # =========================
-    # 5. GRID
+    # 🔥 DETECCIÓN POR COLUMNAS (CLAVE)
     # =========================
-    rows = config["rows"]
+    col_sum = np.sum(thresh == 255, axis=0)  # suma vertical
+
+    # Normalizar
+    col_norm = col_sum / np.max(col_sum)
+
     cols = config["cols"]
-    h, w = thresh.shape
 
-    block_w = w / cols
-    block_h = h / rows
+    # dividir en columnas reales
+    w = thresh.shape[1]
+    step = w / cols
 
-    injection_map = np.zeros((rows, cols))
+    injection_map = np.zeros(cols)
+
+    for c in range(cols):
+        x1 = int(c * step)
+        x2 = int((c + 1) * step)
+
+        segment = col_norm[x1:x2]
+
+        if len(segment) == 0:
+            continue
+
+        # 🔥 CLAVE: usar el valor máximo, no promedio
+        if np.max(segment) > 0.15:
+            injection_map[c] = 1
 
     # =========================
-    # 6. DETECCIÓN FLEXIBLE
+    # RESULTADO FINAL
     # =========================
-    for r in range(rows):
-        for c in range(cols):
-            x1, x2 = int(c * block_w), int((c + 1) * block_w)
-            y1, y2 = int(r * block_h), int((r + 1) * block_h)
+    total = len(injection_map)
+    activos = np.sum(injection_map)
 
-            block = thresh[y1:y2, x1:x2]
+    porcentaje = (activos / total) * 100
 
-            if block.size == 0:
-                continue
-
-            # % de tinta
-            ink_density = np.sum(block == 255) / block.size
-
-            # REGLA MEJORADA:
-            # - más sensible
-            # - detecta líneas finas
-            if ink_density > 0.003:   # 🔥 antes 0.01
-                injection_map[r, c] = 1
-
-    return injection_map
+    return porcentaje, injection_map
 
 
 # ===============================
