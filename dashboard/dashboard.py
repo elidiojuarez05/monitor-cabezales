@@ -570,35 +570,43 @@ with tab_analisis:
             if len(st.session_state.recortes) >= num_cabezales:
                 st.divider()
                 # Botón final
+                # --- DENTRO DEL BOTÓN DE PROCESAMIENTO TOTAL ---
                 if st.button("🚀 INICIAR PROCESAMIENTO TOTAL", type="secondary", use_container_width=True):
-                    # --- LÓGICA DE PROCESAMIENTO ---
-                        
-                    with st.spinner("Procesando matriz de nozzles..."):
-                        # 1. Obtener config y crear una copia temporal sin recortes fijos
-                        config_base = MACHINE_CONFIGS[machine_selected_global].copy()
-                        config_base['crop_rect'] = None # CRÍTICO: Evita el doble recorte
-                        
+                    if len(st.session_state.recortes) < num_cabezales:
+                        st.error(f"❌ Faltan recortes ({len(st.session_state.recortes)}/{num_cabezales})")
+                    else:
+                        # INICIALIZACIÓN DE VARIABLES (Aquí es donde fallaba)
+                        all_maps = [] 
+                        t_missing = 0
+                        t_nodes = 0
                         img_res_final = None
-                        
-                        for h_id in sorted(st.session_state.recortes.keys()):
-                            img_c = st.session_state.recortes[h_id] # Aquí usamos el nombre correcto de tu dict
-                            img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
-                            
-                            # Usamos una ruta temporal segura
-                            temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
-                            cv2.imwrite(temp_path, img_cv)
-                            
-                            # 2. Procesar con la config que no tiene crop_rect
-                            mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config_base, sensibilidad)
-                            
-                            if mapa is not None:
-                                all_maps.append({"id": h_id, "mapa": mapa.tolist()})
-                                img_res_final = img_res
-                                t_missing += int(np.count_nonzero(mapa == 0))
-                                t_nodes += mapa.size
-                            else:
-                                st.error(f"❌ Error procesando Cabezal {h_id}: {msg}")
-                                break
+                        exito_proceso = True # Flag para controlar errores en el bucle
+                
+                        with st.spinner("Procesando matriz de nozzles..."):
+                            config_base = MACHINE_CONFIGS[machine_selected_global].copy()
+                            config_base['crop_rect'] = None 
+                
+                            for h_id in sorted(st.session_state.recortes.keys()):
+                                img_c = st.session_state.recortes[h_id]
+                                img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
+                                
+                                # Ruta temporal
+                                temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
+                                cv2.imwrite(temp_path, img_cv)
+                                
+                                # PROCESAR
+                                mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config_base, sensibilidad)
+                                
+                                if mapa is not None:
+                                    # AQUÍ YA NO DARÁ NameError porque all_maps se definió arriba
+                                    all_maps.append({"id": h_id, "mapa": mapa.tolist()})
+                                    img_res_final = img_res
+                                    t_missing += int(np.count_nonzero(mapa == 0))
+                                    t_nodes += mapa.size
+                                else:
+                                    st.error(f"❌ Error en Cabezal {h_id}: {msg}")
+                                    exito_proceso = False
+                                    break
                         
                         
                         # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
