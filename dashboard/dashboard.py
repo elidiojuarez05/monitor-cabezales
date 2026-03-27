@@ -564,8 +564,7 @@ with tab_analisis:
                         from image_processor import process_test_image_v2
                         import tempfile
 
-                        config_base = MACHINE_CONFIGS[machine_selected_global].copy()
-                        config_base['crop_rect'] = None # CRÍTICO: Evita el doble recorte
+                        maquina_nombre = st.session_state.get('maquina_seleccionada')
                         st.write(f"⚙️ Procesando con la configuración de: {maquina_nombre}") # Esto te dirá si hay error de asignación
                         
                         all_maps = {}
