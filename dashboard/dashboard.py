@@ -543,18 +543,26 @@ with tab_analisis:
             h_id = st.selectbox("Recortando cabezal:", range(1, num_h + 1))
             
             # EL CROPPER: realtime_update=False para que NO se mueva solo
+            crop_key = f"crop_result_{h_id}"
+
             img_cropped = st_cropper(
-                img_rotated, 
-                realtime_update=False, 
-                box_color='#FF0000', 
-                aspect_ratio=None, 
-                key=f"vutek_crop_{h_id}" # Key única por cabezal
+                img_rotated,
+                realtime_update=True,  # 👈 IMPORTANTE
+                box_color='#FF0000',
+                aspect_ratio=None,
+                key=f"vutek_crop_{h_id}"
             )
             
+            # Guardar SIEMPRE el último crop válido
+            if img_cropped is not None:
+                st.session_state[crop_key] = img_cropped.copy()
+            
             if st.button(f"💾 Guardar Recorte {h_id}", type="primary"):
-                # .copy() asegura que guardamos el recorte y no la imagen original
-                st.session_state.recortes[h_id] = img_cropped.copy()
-                st.toast(f"Cabezal {h_id} guardado.")
+                if crop_key in st.session_state:
+                    st.session_state.recortes[h_id] = st.session_state[crop_key].copy()
+                    st.toast(f"Cabezal {h_id} guardado.")
+                else:
+                    st.warning("Primero ajusta el recorte.")
 
         with col_prev:
             st.subheader("Lista de Recortes")
