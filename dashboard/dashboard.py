@@ -599,6 +599,16 @@ with tab_analisis:
                     config_base = MACHINE_CONFIGS[machine_selected_global].copy()
 
                     for idx, img_save in st.session_state.recortes.items():
+                        # ✅ Asegurarse que sea PIL.Image
+                        if not isinstance(img_save, Image.Image):
+                            try:
+                                img_save = Image.fromarray(img_save)
+                            except Exception as e:
+                                st.error(f"No se pudo procesar el recorte {idx}: {e}")
+                                continue
+                    
+                        # LLAMADA A LA FUNCIÓN
+                        porcentaje, mapa = process_standard_manual(img_save, config_base)
                         # -------------------------
                         # Procesamiento robusto
                         # -------------------------
