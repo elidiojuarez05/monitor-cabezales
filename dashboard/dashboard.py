@@ -542,13 +542,22 @@ with tab_analisis:
             cabezal_actual = st.selectbox("Selecciona qué cabezal vas a recortar:", range(1, num_cabezales + 1))
             
             # --- CROPPER ---
-            img_cropped = st_cropper(img_rotated, realtime_update=False, box_color='#FF0000', 
-                                    aspect_ratio=None, key=f"crop_canvas_{cabezal_actual}_{grados}")
+            crop_key = f"cropper_estatico_{cabezal_actual}" 
 
+            img_cropped = st_cropper(
+                img_rotated, 
+                realtime_update=True,  # Recomendado para que la variable img_cropped se actualice al mover el cuadro
+                box_color='#FF0000', 
+                aspect_ratio=None, 
+                key=crop_key
+            )
+            
+            # 2. El botón de guardado debe capturar el estado actual de 'img_cropped'
             if st.button(f"💾 Guardar Recorte del Cabezal {cabezal_actual}", type="primary"):
-                st.session_state.recortes[cabezal_actual] = img_cropped
-                st.toast(f"✅ Cabezal {cabezal_actual} guardado.")
-        
+                # IMPORTANTE: Copiamos la imagen para que no sea una referencia al widget
+                st.session_state.recortes[cabezal_actual] = img_cropped.copy()
+                st.toast(f"✅ Cabezal {cabezal_actual} guardado con éxito.")
+                    
         with col_prev:
             st.subheader("Vista Previa")
             for h_id in sorted(st.session_state.recortes.keys()):
