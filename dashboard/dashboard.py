@@ -621,17 +621,20 @@ with tab_analisis:
                                 VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
                             """, params)
 
+                            # --- DENTRO DEL BOTÓN DE PROCESAMIENTO TOTAL ---
                             if exito:
+                                # 1. Limpiamos los recortes PRIMERO
                                 st.session_state.recortes = {}
                                 st.session_state.editando_manual = False
-                                st.success(f"✅ ¡{machine_selected_global} Actualizada! Total: {salud_final:.1f}%")
+                                
+                                # 2. Usamos un flag para detener el renderizado del cropper
+                                st.success(f"✅ ¡{machine_selected_global} Actualizada!")
                                 st.balloons()
-                                time.sleep(2)
-                                st.rerun()
-                            else:
-                                st.error("❌ Los datos se procesaron pero NO se pudieron guardar por error en la base de datos.")
-                        else:
-                            st.warning("⚠️ No se generaron mapas válidos. Revisa los recortes de la imagen.")
+                                
+                                # 3. En lugar de un rerun inmediato que puede buclear, 
+                                # usa un botón para que el usuario regrese o limpia el file_uploader
+                                if st.button("Finalizar y Limpiar Pantalla"):
+                                    st.rerun()
 
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
