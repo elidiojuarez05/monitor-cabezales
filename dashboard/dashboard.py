@@ -515,16 +515,22 @@ with tab_planta:
         cols = st.columns(2)
         for j, m_name in enumerate(lista_maquinas[i : i + 2]):
             with cols[j]: render_machine_card(m_name, fecha_consulta, suffix="gral")
-#analisis y crop tab3
+# ===============================
+    # 🔹 TAB3
+    # ===============================
 with tab_analisis:
     import json
     from PIL import Image
 
-    # --- Estados persistentes ---
+    # ===============================
+    # 🔹 Estados persistentes
+    # ===============================
     if 'recortes' not in st.session_state: st.session_state.recortes = {}
     if 'finalizado' not in st.session_state: st.session_state.finalizado = False
 
-    # --- Pantalla de éxito ---
+    # ===============================
+    # ✅ Pantalla de éxito
+    # ===============================
     if st.session_state.finalizado:
         st.success(f"### ✅ ¡{machine_selected_global} Sincronizada!")
         st.metric("SALUD TOTAL", f"{st.session_state.get('ultima_salud', 0):.2f}%")
@@ -534,9 +540,11 @@ with tab_analisis:
             st.rerun()
         st.stop()  # evita parpadeo
 
-    # --- Flujo de carga ---
+    # ===============================
+    # 📁 Carga del test
+    # ===============================
     uploaded_file = st.file_uploader("Subir Test Vutek", type=['jpg', 'png'], key="up_vutek_final")
-    
+
     if uploaded_file:
         img_raw = Image.open(uploaded_file)
         grados = st.slider("Ajuste de rotación", -10.0, 10.0, 0.0)
@@ -544,44 +552,53 @@ with tab_analisis:
 
         col_edit, col_prev = st.columns([2, 1])
 
+        # ===============================
+        # ✂️ Cropping y selección de cabezales
+        # ===============================
         with col_edit:
             num_h = st.number_input("Total cabezales en test", 1, 12, 2)
             h_id = st.selectbox("Recortando cabezal:", range(1, num_h + 1))
 
-            # --- Cropper ---
             img_cropped = st_cropper(
-            img_rotated,
-            realtime_update=False,  # evita que se sobrescriba solo
-            box_color='#FF0000',
-            aspect_ratio=None,
-            key=f"vutek_crop_{h_id}"
-        )
-        
-        # Guardar recorte final
-        if st.button(f"💾 Guardar Recorte {h_id}", type="primary"):
-            if img_cropped is not None:
-                st.session_state.recortes[h_id] = img_cropped.copy()
-                st.toast(f"Cabezal {h_id} guardado.")
-            else:
-                st.warning("Primero ajusta el recorte.")
+                img_rotated,
+                realtime_update=False,  # evita que se mueva solo
+                box_color='#FF0000',
+                aspect_ratio=None,
+                key=f"vutek_crop_{h_id}"
+            )
 
-        # --- Lista de recortes ---
+            # Guardado robusto del crop
+            if st.button(f"💾 Guardar Recorte {h_id}", type="primary"):
+                if img_cropped is not None:
+                    st.session_state.recortes[h_id] = img_cropped.copy()
+                    st.toast(f"Cabezal {h_id} guardado.")
+                else:
+                    st.warning("Primero ajusta el recorte.")
+
+        # ===============================
+        # 📸 Vista previa de recortes
+        # ===============================
         with col_prev:
             st.subheader("Lista de Recortes")
             for idx in sorted(st.session_state.recortes.keys()):
                 st.image(st.session_state.recortes[idx], caption=f"H-{idx}", use_column_width=True)
 
-            # --- Procesamiento final ---
+            # ===============================
+            # 🚀 Procesamiento de todos los recortes
+            # ===============================
             if len(st.session_state.recortes) >= num_h:
                 st.divider()
-                if st.button("🚀 PROCESAR Y SINCRONIZAR", use_container_width=True):
+                if st.button("PROCESAR Y SINCRONIZAR", use_container_width=True):
                     all_maps_list = []
                     t_missing, t_nodes = 0, 0
                     config_base = MACHINE_CONFIGS[machine_selected_global].copy()
 
-                    # Procesar cada recorte
                     for idx, img_save in st.session_state.recortes.items():
-                        st.image(img_save, caption=f"Procesando H-{idx}")  # depuración visual
+                        if img_save is None:
+                            st.warning(f"Cabezal {idx} no tiene recorte válido, se omite.")
+                            continue
+
+                        # --- Procesamiento estándar VUTEK / Durst ---
                         porcentaje, mapa = process_standard_manual(img_save, config_base)
 
                         missing = int(np.count_nonzero(mapa == 0))
@@ -589,8 +606,14 @@ with tab_analisis:
                         t_nodes += mapa.size
                         all_maps_list.append({"id": idx, "mapa": mapa.tolist()})
 
-                    # --- Cálculo de salud ---
-                    salud = ((t_nodes - t_missing) / t_nodes) * 100
+                        st.image(img_save, caption=f"Procesado H-{idx}", use_column_width=True)
+
+                    # --- Cálculo de salud total ---
+                    if t_nodes > 0:
+                        salud = ((t_nodes - t_missing) / t_nodes) * 100
+                    else:
+                        salud = 0
+
                     st.session_state.ultima_salud = salud
                     st.session_state.finalizado = True
 
@@ -608,8 +631,7 @@ with tab_analisis:
                     )
 
                     st.session_state.analisis_completado = True
-                    st.rerun()                               
-
+                    st.rerun()
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
 # =========================================================
