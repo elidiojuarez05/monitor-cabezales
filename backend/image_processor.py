@@ -109,9 +109,23 @@ def process_epson(img, config):
 def process_standard_manual(cropped_image, config):
     import cv2
     import numpy as np
+    from PIL import Image
 
-    img = np.array(cropped_image.convert('RGB'))
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    # Asegurar que sea un PIL.Image
+    if isinstance(cropped_image, np.ndarray):
+        img = cropped_image
+        if img.ndim == 2:  # imagen gris
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        elif img.shape[2] == 4:  # si tiene canal alfa
+            img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+        else:
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    elif isinstance(cropped_image, Image.Image):
+        img = np.array(cropped_image.convert('RGB'))
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    else:
+        raise ValueError("La imagen debe ser PIL.Image o np.ndarray")
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # Mejor contraste local
