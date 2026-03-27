@@ -517,11 +517,14 @@ with tab_planta:
             with cols[j]: render_machine_card(m_name, fecha_consulta, suffix="gral")
 #analisis y crop tab3
 with tab_analisis:
-    # Estados persistentes
+    import json
+    from PIL import Image
+
+    # --- Estados persistentes ---
     if 'recortes' not in st.session_state: st.session_state.recortes = {}
     if 'finalizado' not in st.session_state: st.session_state.finalizado = False
 
-    # --- PANTALLA DE ÉXITO ---
+    # --- Pantalla de éxito ---
     if st.session_state.finalizado:
         st.success(f"### ✅ ¡{machine_selected_global} Sincronizada!")
         st.metric("SALUD TOTAL", f"{st.session_state.get('ultima_salud', 0):.2f}%")
@@ -529,14 +532,13 @@ with tab_analisis:
             st.session_state.finalizado = False
             st.session_state.recortes = {}
             st.rerun()
-        st.stop() # Esto mata el parpadeo
+        st.stop()  # evita parpadeo
 
-    # --- FLUJO DE CARGA ---
+    # --- Flujo de carga ---
     uploaded_file = st.file_uploader("Subir Test Vutek", type=['jpg', 'png'], key="up_vutek_final")
-
+    
     if uploaded_file:
         img_raw = Image.open(uploaded_file)
-        # Rotación (Slider fuera de las columnas para estabilidad)
         grados = st.slider("Ajuste de rotación", -10.0, 10.0, 0.0)
         img_rotated = img_raw.rotate(grados, expand=True)
 
@@ -545,56 +547,54 @@ with tab_analisis:
         with col_edit:
             num_h = st.number_input("Total cabezales en test", 1, 12, 2)
             h_id = st.selectbox("Recortando cabezal:", range(1, num_h + 1))
-            
-            # EL CROPPER: realtime_update=False para que NO se mueva solo
-            crop_key = f"crop_result_{h_id}"
 
+            # --- Cropper ---
             img_cropped = st_cropper(
                 img_rotated,
-                realtime_update=True,  # 👈 IMPORTANTE
+                realtime_update=False,  # solo aplica al presionar guardar
                 box_color='#FF0000',
                 aspect_ratio=None,
                 key=f"vutek_crop_{h_id}"
             )
-            
-            # Guardar SIEMPRE el último crop válido
-            if img_cropped is not None:
-                st.session_state[crop_key] = img_cropped.copy()
-            
+
+            # Botón para guardar recorte definitivo
             if st.button(f"💾 Guardar Recorte {h_id}", type="primary"):
-                if crop_key in st.session_state:
-                    st.session_state.recortes[h_id] = st.session_state[crop_key].copy()
+                if img_cropped is not None:
+                    st.session_state.recortes[h_id] = img_cropped.copy()
                     st.toast(f"Cabezal {h_id} guardado.")
                 else:
                     st.warning("Primero ajusta el recorte.")
 
+        # --- Lista de recortes ---
         with col_prev:
             st.subheader("Lista de Recortes")
             for idx in sorted(st.session_state.recortes.keys()):
-                st.image(st.session_state.recortes[idx], caption=f"H-{idx}")
-            
+                st.image(st.session_state.recortes[idx], caption=f"H-{idx}", use_column_width=True)
+
+            # --- Procesamiento final ---
             if len(st.session_state.recortes) >= num_h:
                 st.divider()
                 if st.button("🚀 PROCESAR Y SINCRONIZAR", use_container_width=True):
-                    all_maps_list = [] # Variable local para el botón
+                    all_maps_list = []
                     t_missing, t_nodes = 0, 0
                     config_base = MACHINE_CONFIGS[machine_selected_global].copy()
 
+                    # Procesar cada recorte
                     for idx, img_save in st.session_state.recortes.items():
-                        # LLAMADA A LA FUNCIÓN (Ya debe estar definida al inicio)
-                        mapa = process_standard_manual(img_save, config_base)
-                        
+                        st.image(img_save, caption=f"Procesando H-{idx}")  # depuración visual
+                        porcentaje, mapa = process_standard_manual(img_save, config_base)
+
                         missing = int(np.count_nonzero(mapa == 0))
                         t_missing += missing
                         t_nodes += mapa.size
                         all_maps_list.append({"id": idx, "mapa": mapa.tolist()})
 
-                    # Cálculos y guardado
+                    # --- Cálculo de salud ---
                     salud = ((t_nodes - t_missing) / t_nodes) * 100
                     st.session_state.ultima_salud = salud
                     st.session_state.finalizado = True
-                    
-                    # --- GUARDADO EN DB ---
+
+                    # --- Guardado en DB ---
                     map_json = json.dumps(all_maps_list)
                     params = {
                         "m": machine_selected_global,
@@ -602,11 +602,13 @@ with tab_analisis:
                         "n": t_missing,
                         "map": map_json
                     }
-                    
-                    commit_db("INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, timestamp) VALUES (:m, :s, :n, :map, CURRENT_TIMESTAMP)", params)
-                    
+                    commit_db(
+                        "INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, timestamp) VALUES (:m, :s, :n, :map, CURRENT_TIMESTAMP)",
+                        params
+                    )
+
                     st.session_state.analisis_completado = True
-                    st.rerun()                                 
+                    st.rerun()                               
 
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
