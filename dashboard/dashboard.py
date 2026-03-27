@@ -519,13 +519,17 @@ with tab_planta:
     # 🔹 TAB3
     # ===============================
 with tab_analisis:
-    # Estados persistentes
+    # ===============================
+    # ⚡ Estados persistentes
+    # ===============================
     if 'recortes' not in st.session_state:
         st.session_state.recortes = {}
     if 'finalizado' not in st.session_state:
         st.session_state.finalizado = False
 
-    # --- PANTALLA DE ÉXITO ---
+    # ===============================
+    # ✅ Pantalla de éxito
+    # ===============================
     if st.session_state.finalizado:
         st.success(f"### ✅ ¡{machine_selected_global} Sincronizada!")
         st.metric("SALUD TOTAL", f"{st.session_state.get('ultima_salud', 0):.2f}%")
@@ -533,35 +537,40 @@ with tab_analisis:
             st.session_state.finalizado = False
             st.session_state.recortes = {}
             st.rerun()
-        st.stop()  # Esto mata el parpadeo
+        st.stop()  # Esto previene parpadeo
 
-    # --- FLUJO DE CARGA ---
+    # ===============================
+    # 📤 Flujo de carga de imagen
+    # ===============================
     uploaded_file = st.file_uploader("Subir Test Vutek", type=['jpg', 'png'], key="up_vutek_final")
     
     if uploaded_file:
         img_raw = Image.open(uploaded_file)
-
         # Rotación (Slider fuera de las columnas para estabilidad)
         grados = st.slider("Ajuste de rotación", -10.0, 10.0, 0.0)
         img_rotated = img_raw.rotate(grados, expand=True)
 
         col_edit, col_prev = st.columns([2, 1])
 
+        # ===============================
+        # ✂️ Recorte de cabezales
+        # ===============================
         with col_edit:
             num_h = st.number_input("Total cabezales en test", 1, 12, 2)
             h_id = st.selectbox("Recortando cabezal:", range(1, num_h + 1))
             
-            # EL CROPPER: realtime_update=False para que NO se mueva solo
             crop_key = f"crop_result_{h_id}"
+
+            # st_cropper siempre retorna un PIL.Image
             img_cropped = st_cropper(
                 img_rotated,
-                realtime_update=True,  # 👈 IMPORTANTE
+                realtime_update=True,
                 box_color='#FF0000',
                 aspect_ratio=None,
                 key=f"vutek_crop_{h_id}"
             )
             
-            # Guardar SIEMPRE el último crop válido
+            # Guardar siempre el último recorte válido
             if img_cropped is not None:
                 st.session_state[crop_key] = img_cropped.copy()
             
@@ -572,46 +581,73 @@ with tab_analisis:
                 else:
                     st.warning("Primero ajusta el recorte.")
 
+        # ===============================
+        # 📄 Lista de recortes
+        # ===============================
         with col_prev:
             st.subheader("Lista de Recortes")
             for idx in sorted(st.session_state.recortes.keys()):
                 st.image(st.session_state.recortes[idx], caption=f"H-{idx}")
-            
-            if len(st.session_state.recortes) >= num_h:
-                st.divider()
-                if st.button("🚀 PROCESAR Y SINCRONIZAR", use_container_width=True):
-                    all_maps_list = []  # Variable local para el botón
-                    t_missing, t_nodes = 0, 0
-                    config_base = MACHINE_CONFIGS[machine_selected_global].copy()
 
-                    for idx, img_save in st.session_state.recortes.items():
-                        # LLAMADA A LA FUNCIÓN (Ya debe estar definida al inicio)
-                        porcentaje, mapa = process_standard_manual(img_save, config_base)
-                        missing = int(np.count_nonzero(mapa == 0))
-                        t_missing += missing
-                        t_nodes += mapa.size
-                        all_maps_list.append({"id": idx, "mapa": mapa.tolist()})
+        # ===============================
+        # 🚀 Procesar y sincronizar
+        # ===============================
+        if len(st.session_state.recortes) >= num_h:
+            st.divider()
+            if st.button("🚀 PROCESAR Y SINCRONIZAR", use_container_width=True):
+                all_maps_list = []
+                t_missing, t_nodes = 0, 0
+                config_base = MACHINE_CONFIGS[machine_selected_global].copy()
 
-                    # Cálculos y guardado
+                for idx, img_save in st.session_state.recortes.items():
+                    # Validación: convertir a PIL.Image si es necesario
+                    from PIL import Image
+                    import numpy as np
+
+                    if not isinstance(img_save, Image.Image):
+                        try:
+                            img_save = Image.fromarray(np.array(img_save))
+                        except Exception as e:
+                            st.warning(f"Recorte {idx} no válido: {e}")
+                            continue
+
+                    # Llamada segura a la función de procesamiento
+                    porcentaje, mapa = process_standard_manual(img_save, config_base)
+
+                    missing = int(np.count_nonzero(mapa == 0))
+                    t_missing += missing
+                    t_nodes += mapa.size
+
+                    all_maps_list.append({"id": idx, "mapa": mapa.tolist()})
+
+                # ===============================
+                # 🔢 Calculo de salud
+                # ===============================
+                if t_nodes > 0:
                     salud = ((t_nodes - t_missing) / t_nodes) * 100
-                    st.session_state.ultima_salud = salud
-                    st.session_state.finalizado = True
-                    
-                    # --- GUARDADO EN DB ---
-                    map_json = json.dumps(all_maps_list)
-                    params = {
-                        "m": machine_selected_global,
-                        "s": salud,
-                        "n": t_missing,
-                        "map": map_json
-                    }
-                    commit_db(
-                        "INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, timestamp) VALUES (:m, :s, :n, :map, CURRENT_TIMESTAMP)",
-                        params
-                    )
-                    
-                    st.session_state.analisis_completado = True
-                    st.rerun()
+                else:
+                    salud = 0
+
+                st.session_state.ultima_salud = salud
+                st.session_state.finalizado = True
+
+                # ===============================
+                # 💾 Guardado en DB
+                # ===============================
+                map_json = json.dumps(all_maps_list)
+                params = {
+                    "m": machine_selected_global,
+                    "s": salud,
+                    "n": t_missing,
+                    "map": map_json
+                }
+                commit_db(
+                    "INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, timestamp) VALUES (:m, :s, :n, :map, CURRENT_TIMESTAMP)",
+                    params
+                )
+
+                st.session_state.analisis_completado = True
+                st.rerun()
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
 # =========================================================
