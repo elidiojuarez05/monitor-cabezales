@@ -114,49 +114,46 @@ def process_standard_manual(cropped_image, config):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # =========================
-    # 🔧 1. NORMALIZAR ILUMINACIÓN
+    # 🔧 NORMALIZAR ILUMINACIÓN
     # =========================
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    # eliminar gradiente de luz (CLAVE por el reflejo)
     bg = cv2.medianBlur(gray, 31)
     norm = cv2.divide(gray, bg, scale=255)
 
     # =========================
-    # 🔍 2. DETECTAR LÍNEAS
+    # 🔍 DETECTAR LÍNEAS
     # =========================
     edges = cv2.Canny(norm, 30, 100)
 
     # reforzar líneas horizontales
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,1))
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7,1))
     edges = cv2.dilate(edges, kernel, iterations=1)
 
     # =========================
-    # 📊 3. PROYECCIÓN VERTICAL
+    # 🔥 PROYECCIÓN HORIZONTAL (FIX REAL)
     # =========================
-    col_strength = np.sum(edges > 0, axis=0)
+    row_strength = np.sum(edges > 0, axis=1)
 
-    # normalizar
-    col_strength = col_strength / np.max(col_strength)
+    row_strength = row_strength / np.max(row_strength)
 
-    cols = config["cols"]
-    w = edges.shape[1]
-    step = w / cols
+    rows = config["rows"]
+    h = edges.shape[0]
+    step = h / rows
 
-    injection_map = np.zeros(cols)
+    injection_map = np.zeros(rows)
 
-    for c in range(cols):
-        x1 = int(c * step)
-        x2 = int((c + 1) * step)
+    for r in range(rows):
+        y1 = int(r * step)
+        y2 = int((r + 1) * step)
 
-        segment = col_strength[x1:x2]
+        segment = row_strength[y1:y2]
 
         if len(segment) == 0:
             continue
 
         # 🔥 DETECCIÓN REALISTA
-        if np.max(segment) > 0.10:
-            injection_map[c] = 1
+        if np.max(segment) > 0.08:
+            injection_map[r] = 1
 
     porcentaje = (np.sum(injection_map) / len(injection_map)) * 100
 
