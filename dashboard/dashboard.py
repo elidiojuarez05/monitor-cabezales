@@ -590,15 +590,20 @@ with tab_analisis:
                         config_base = MACHINE_CONFIGS[machine_selected_global].copy()
                         config_base['crop_rect'] = None
 
-                        for h_id, img_c in st.session_state.recortes.items():
+                        # --- DENTRO DEL BUCLE DE CABEZALES ---
+                        for h_id in sorted(st.session_state.recortes.keys()):
+                            img_c = st.session_state.recortes[h_id]
                             img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
-                            # Procesamiento (asegúrate de que tu función devuelva estos 3 valores)
-                            mapa, _, _ = process_standard(img_cv, config_base) 
+                            
+                            # LLAMADA A LA FUNCIÓN MANUAL (Sin auto-roi)
+                            mapa, _, msg = process_standard_manual(img_cv, config_base)
                             
                             if mapa is not None:
+                                all_maps.append({"id": h_id, "mapa": mapa.tolist()})
                                 total_missing += int(np.count_nonzero(mapa == 0))
                                 total_nodes += mapa.size
-                                all_maps.append(mapa.tolist())
+                            else:
+                                st.error(f"Error en H-{h_id}: {msg}")
                         
                         
                         # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
