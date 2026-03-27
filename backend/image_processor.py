@@ -155,7 +155,7 @@ def process_standard_manual(cropped_image, config):
             continue
 
         # 🔥 DETECCIÓN REALISTA
-        if np.max(segment) > 0.12:
+        if np.max(segment) > 0.10:
             injection_map[c] = 1
 
     porcentaje = (np.sum(injection_map) / len(injection_map)) * 100
