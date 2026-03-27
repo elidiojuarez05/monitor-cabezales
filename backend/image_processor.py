@@ -119,7 +119,7 @@ def process_standard_manual(cropped_image, config):
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
     # Umbral de 180 (Ajusta si los puntos son muy claros)
-    _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
     rows = config["rows"]
     cols = config["cols"]
