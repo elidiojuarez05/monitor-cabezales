@@ -112,62 +112,46 @@ def process_standard_manual(cropped_image, config):
 
     img = np.array(cropped_image.convert('RGB'))
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # Contraste local
+    # Mejor contraste local
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     gray = clahe.apply(gray)
 
-    # Suavizado y normalización de fondo
-    gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    bg = cv2.medianBlur(gray_blur, 31)
-    norm = cv2.divide(gray_blur, bg, scale=255)
-
-    # Bordes
-    edges = cv2.Canny(norm, 30, 100)
-
-    # Morfología
-    kernel_morph = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
-    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel_morph, iterations=1)
-    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 1))
-    edges = cv2.dilate(edges, kernel_dilate, iterations=1)
-
-    # Mapas de filas y columnas
-    row_strength = np.sum(edges > 0, axis=1) / np.max(np.sum(edges > 0, axis=1))
-    col_strength = np.sum(edges > 0, axis=0) / np.max(np.sum(edges > 0, axis=0))
+    # Binarización adaptativa
+    thresh = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+        cv2.THRESH_BINARY_INV, 15, 5
+    )
 
     rows = config["rows"]
     cols = config["cols"]
-    h, w = edges.shape
+    h, w = thresh.shape
 
-    injection_map_rows = np.zeros(rows)
-    injection_map_cols = np.zeros(cols)
+    block_h = h / rows
+    block_w = w / cols
 
-    margen = 2
+    injection_map = np.zeros((rows, cols))
 
-    fila_umbral = 0.08
-    columna_umbral = 0.04
-
-    step_h = h / rows
-    step_w = w / cols
+    ink_threshold = config.get("ink_threshold", 0.002)
 
     for r in range(rows):
-        y1 = max(0, int(r * step_h) - margen)
-        y2 = min(h, int((r + 1) * step_h) + margen)
-        if np.max(row_strength[y1:y2]) > fila_umbral:
-            injection_map_rows[r] = 1
+        for c in range(cols):
+            y1 = int(r * block_h)
+            y2 = int((r + 1) * block_h)
+            x1 = int(c * block_w)
+            x2 = int((c + 1) * block_w)
 
-    for c in range(cols):
-        x1 = max(0, int(c * step_w) - margen)
-        x2 = min(w, int((c + 1) * step_w) + margen)
-        if np.max(col_strength[x1:x2]) > columna_umbral:
-            injection_map_cols[c] = 1
+            block = thresh[y1:y2, x1:x2]
+            if block.size == 0:
+                continue
+            ink_ratio = np.sum(block == 255) / block.size
+            if ink_ratio > ink_threshold:
+                injection_map[r, c] = 1
 
-    injection_map_2d = np.outer(injection_map_rows, injection_map_cols)
-    porcentaje = np.sum(injection_map_2d) / (rows * cols) * 100
+    porcentaje = np.sum(injection_map) / (rows * cols) * 100
 
-    return porcentaje, injection_map_2d
+    return porcentaje, injection_map
 
 
 # ===============================
