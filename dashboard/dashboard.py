@@ -512,72 +512,67 @@ with tab_planta:
         for j, m_name in enumerate(lista_maquinas[i : i + 2]):
             with cols[j]: render_machine_card(m_name, fecha_consulta, suffix="gral")
 
-# =========================================================
-# TAB 3: ANÁLISIS MANUAL Y CROPPER (VERSIÓN ESTABLE)
-# =========================================================
 with tab_analisis:
-    # 1. Estados de persistencia
+    # Inicializar estados si no existen
     if 'recortes' not in st.session_state: st.session_state.recortes = {}
-    if 'analisis_completado' not in st.session_state: st.session_state.analisis_completado = False
+    if 'finalizado' not in st.session_state: st.session_state.finalizado = False
 
-    if st.session_state.analisis_completado:
-        st.success(f"### ✅ ¡{machine_selected_global} Actualizada!")
-        st.metric("Salud Final", f"{st.session_state.get('ultima_salud', 0):.2f}%")
-        if st.button("🔄 Nuevo Análisis"):
-            st.session_state.analisis_completado = False
+    # Si ya procesamos, bloqueamos la edición y mostramos éxito
+    if st.session_state.finalizado:
+        st.success(f"✅ ¡Sincronización Exitosa!")
+        st.metric("Salud Final", f"{st.session_state.get('salud_final', 0):.2f}%")
+        if st.button("🔄 Realizar nuevo test"):
+            st.session_state.finalizado = False
             st.session_state.recortes = {}
             st.rerun()
         st.stop()
 
-    uploaded_file = st.file_uploader("Subir Test Vutek", type=['jpg', 'png', 'jpeg'], key="up_vutek_final")
+    uploaded_file = st.file_uploader("Subir Test Vutek", type=['jpg', 'png', 'jpeg'], key="up_vutek")
 
     if uploaded_file:
-        # Usamos cache para que la rotación no sea lenta
         img_raw = Image.open(uploaded_file)
-        grados = st.sidebar.slider("Rotación Fina", -10.0, 10.0, 0.0, step=0.1) # Slider en sidebar para no mover el cropper
+        # Slider de rotación fuera de las columnas para no interferir
+        grados = st.slider("Ajuste de rotación", -5.0, 5.0, 0.0, 0.1)
         img_rotated = img_raw.rotate(grados, expand=True)
 
         col_edit, col_prev = st.columns([2, 1])
 
         with col_edit:
-            num_cabezales = st.number_input("Total cabezales", 1, 10, 2)
-            cabezal_actual = st.selectbox("Recortando cabezal:", range(1, num_cabezales + 1))
+            num_cabezales = st.number_input("Cantidad de cabezales", 1, 12, 2)
+            h_id = st.selectbox("Seleccione cabezal a recortar", range(1, num_cabezales + 1))
             
-            # --- EL CROPPER ---
-            # realtime_update=False es VITAL para que respete tu selección
+            # CROPPER ESTABLE
             img_cropped = st_cropper(
                 img_rotated, 
                 realtime_update=False, 
                 box_color='#FF0000', 
                 aspect_ratio=None, 
-                key=f"crop_vutek_{cabezal_actual}" # Key única evita que se resetee al cambiar de cabezal
+                key=f"vutek_h_{h_id}" # Key dinámica para persistencia
             )
             
-            if st.button(f"💾 Confirmar Recorte Cabezal {cabezal_actual}"):
-                st.session_state.recortes[cabezal_actual] = img_cropped
-                st.toast(f"Cabezal {cabezal_actual} guardado temporalmente")
+            if st.button(f"💾 Guardar Cabezal {h_id}", type="primary"):
+                st.session_state.recortes[h_id] = img_cropped
+                st.toast(f"H-{h_id} guardado")
 
         with col_prev:
-            st.subheader("Seleccionados")
-            for h_id in sorted(st.session_state.recortes.keys()):
-                st.image(st.session_state.recortes[h_id], caption=f"H-{h_id}", width=150)
+            st.subheader("Recortes listos")
+            for idx in sorted(st.session_state.recortes.keys()):
+                st.image(st.session_state.recortes[idx], caption=f"Cabezal {idx}", use_container_width=True)
             
             if len(st.session_state.recortes) >= num_cabezales:
-                if st.button("🚀 PROCESAR Y SINCRONIZAR", type="primary"):
+                if st.button("🚀 INICIAR PROCESAMIENTO TOTAL"):
                     all_maps = []
-                    t_missing = 0
-                    t_nodes = 0
-                    
+                    t_missing, t_nodes = 0, 0
                     config_base = MACHINE_CONFIGS[machine_selected_global].copy()
-                    
-                    for h_id, img_c in st.session_state.recortes.items():
-                        # Procesar con la función manual
-                        mapa = process_standard_manual(img_c, config_base)
+
+                    for idx, img in st.session_state.recortes.items():
+                        # Usamos la función manual que definimos al principio
+                        mapa = process_standard_manual(img, config_base)
                         
-                        m_missing = int(np.count_nonzero(mapa == 0))
-                        t_missing += m_missing
+                        missing = int(np.count_nonzero(mapa == 0))
+                        t_missing += missing
                         t_nodes += mapa.size
-                        all_maps.append({"id": h_id, "mapa": mapa.tolist()})
+                        all_maps.append({"id": idx, "mapa": mapa.tolist()})
 
                     # Cálculos finales corregidos
                     salud_final = ((t_nodes - t_missing) / t_nodes) * 100
