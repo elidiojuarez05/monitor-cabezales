@@ -81,8 +81,8 @@ def process_epson(img, config):
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     morph = cv2.morphologyEx(sobel, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-    roi = detect_roi_auto(img_rgb)
-
+    roi = img_rgb  # usar imagen completa
+    
     rows = config["rows"]
     cols = config["cols"]
 
@@ -124,10 +124,12 @@ def process_epson(img, config):
 
             morph2 = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel, iterations=1)
 
-            white_ratio = np.sum(morph2 == 255) / morph2.size
+            ink_strength = np.mean(block)  # intensidad promedio
 
-            if white_ratio > 0.005:
+            if ink_strength < 240:  # detecta presencia de tinta real
                 injection_map[r, c] = 1
+
+            
 
     porcentaje = (np.sum(injection_map) / (rows * cols)) * 100
 
@@ -141,7 +143,10 @@ def process_standard(img, config):
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY_INV)
+    _, thresh = cv2.threshold(
+        gray, 0, 255,
+        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )
 
     roi = detect_roi_auto(thresh)
 
@@ -166,7 +171,7 @@ def process_standard(img, config):
 
             white_ratio = np.sum(block == 255) / block.size
 
-            if white_ratio > 0.1:
+            if white_ratio > 0.03:
                 injection_map[r, c] = 1
 
     porcentaje = (np.sum(injection_map) / (rows * cols)) * 100
