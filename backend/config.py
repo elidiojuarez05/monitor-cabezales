@@ -15,7 +15,11 @@ MACHINE_CONFIGS = {
     },
 
     "VUTEK PRO": {"cols": 46, "rows": 800, "type": "standard"},
-    "VUTEK F4": {"cols": 48, "rows": 700, "type": "standard"},
+    "VUTEK_F4": {
+    "rows": 64,
+    "cols": 320,
+    "ink_threshold": 0.002
+},
     "VUTEK H5": {"cols": 28, "rows": 3200, "type": "standard"},
     "DURST 312": {"cols": 16, "rows": 4, "type": "standard"},
     "DURST P10 PLUS": {"cols": 4, "rows": 30, "type": "standard"},
