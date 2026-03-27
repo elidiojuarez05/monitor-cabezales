@@ -164,4 +164,4 @@ def process_test_image_v2(image, machine_name):
         return process_epson(aligned, config)
 
     else:
-        return process_standard(aligned, config)
+        return process_standard_manual(aligned, config)
