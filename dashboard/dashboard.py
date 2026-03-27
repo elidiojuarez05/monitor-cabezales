@@ -558,89 +558,76 @@ with tab_analisis:
                 st.divider()
                 
                 # --- BOTÓN FINAL DE PROCESAMIENTO ---
-                if st.button("🔍 PROCESAR TODOS LOS CABEZALES", use_container_width=True):
-                    try:
-                        from config import MACHINE_CONFIGS
-                        from image_processor import process_test_image_v2
-                        
-                        # 1. FORZAMOS obtener lo que seleccionaste en el Sidebar
-                        maquina_actual = st.session_state.get('maquina_seleccionada')
-                        
-                        if not maquina_actual:
-                            st.error("❌ No hay ninguna máquina seleccionada en el menú global.")
-                            st.stop()
-                
-                        # 2. CARGAMOS la configuración de esa máquina específica (Epson1, por ejemplo)
-                        base_config = MACHINE_CONFIGS.get(maquina_actual)
-                        
-                        if not base_config:
-                            st.error(f"❌ No se encontró configuración para {maquina_actual} en config.py")
-                            st.stop()
-                
-                        st.info(f"Procesando como: {maquina_actual} (Filas: {base_config['rows']})")
-                        
-                        all_maps = {}
-                        t_nodes = 0
+                if st.button("🚀 INICIAR PROCESAMIENTO TOTAL Y SINCRONIZAR", use_container_width=True, type="secondary"):
+                    if len(st.session_state.recortes) < num_cabezales:
+                        st.error(f"❌ Faltan recortes. Has guardado {len(st.session_state.recortes)} de {num_cabezales} cabezales.")
+                    else:
+                        map_json_total = "[]"
+                        all_maps = []
                         t_missing = 0
-                        img_resultados = []
-
-                        # PROCESAMOS CADA RECORTE GUARDADO
-                        for h_id, img_pil in st.session_state.recortes.items():
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-                                img_pil.save(tmp.name)
+                        t_nodes = 0
+                        
+                        with st.spinner("Procesando matriz de nozzles..."):
+                            # 1. Obtener config y crear una copia temporal sin recortes fijos
+                            config_base = MACHINE_CONFIGS[machine_selected_global].copy()
+                            config_base['crop_rect'] = None # CRÍTICO: Evita el doble recorte
+                            
+                            img_res_final = None
+                            
+                            for h_id in sorted(st.session_state.recortes.keys()):
+                                img_c = st.session_state.recortes[h_id] # Aquí usamos el nombre correcto de tu dict
+                                img_cv = cv2.cvtColor(np.array(img_c), cv2.COLOR_RGB2BGR)
                                 
-                                # 3. Ahora base_config ya existe y se puede usar aquí
-                                cfg = {
-                                    "cols": base_config['cols'], 
-                                    "rows": base_config['rows'], 
-                                    "crop_rect": None
-                                }
+                                # Usamos una ruta temporal segura
+                                temp_path = os.path.join(BASE_DIR, f"temp_h{h_id}.jpg")
+                                cv2.imwrite(temp_path, img_cv)
                                 
-                                mapa, img_res, msg = process_test_image_v2(
-                                    tmp.name, 
-                                    cfg, 
-                                    st.session_state.get('sensibilidad', 20)
-                                )
+                                # 2. Procesar con la config que no tiene crop_rect
+                                mapa, img_res, msg = image_processor.process_test_image_v2(temp_path, config_base, sensibilidad)
                                 
                                 if mapa is not None:
-                                    all_maps[f"H{h_id}"] = mapa.tolist()
+                                    all_maps.append({"id": h_id, "mapa": mapa.tolist()})
+                                    img_res_final = img_res
+                                    t_missing += int(np.count_nonzero(mapa == 0))
                                     t_nodes += mapa.size
-                                    t_missing += (mapa.size - np.sum(mapa))
-                                    img_resultados.append(img_res)
+                                else:
+                                    st.error(f"❌ Error procesando Cabezal {h_id}: {msg}")
+                                    break
+                            
+                            # ... (resto de tu lógica de guardado en DB se mantiene igual)
+                            
+                            # 3. GUARDAR SOLO SI EL PROCESO FUE EXITOSO
+                            if all_maps and img_res_final is not None:
+                                salud_final = float(((t_nodes - t_missing) / t_nodes) * 100)
+                                img_pil_res = Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB))
+                                ruta_final = guardar_evidencia_fisica(img_pil_res, machine_selected_global)
+                                map_json_total = json.dumps(all_maps)
+
+                                # Armamos los parámetros justo antes de enviarlos
+                                params = {
+                                    "m": str(machine_selected_global),
+                                    "s": float(salud_final),
+                                    "n": int(t_missing),
+                                    "map": str(map_json_total),
+                                    "e": str(ruta_final)
+                                }
                                 
-                                os.unlink(tmp.name)
+                                exito = commit_db("""
+                                    INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
+                                    VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)
+                                """, params)
 
-                        if all_maps:
-                            salud_final = ((t_nodes - t_missing) / t_nodes) * 100
-                            
-                            # Crear una imagen final combinada de los resultados
-                            img_res_final = cv2.vconcat(img_resultados) if len(img_resultados) > 1 else img_resultados[0]
-                            st.image(img_res_final, caption=f"Resultado Final: {salud_final:.1f}%", use_container_width=True)
-
-                            # --- GUARDAR EN BASE DE DATOS ---
-                            img_pil_res = Image.fromarray(cv2.cvtColor(img_res_final, cv2.COLOR_BGR2RGB))
-                            ruta_final = guardar_evidencia_fisica(img_pil_res, maquina_nombre)
-                            
-                            params = {
-                                "m": str(maquina_nombre),
-                                "s": float(salud_final),
-                                "n": int(t_missing),
-                                "map": json.dumps(all_maps),
-                                "e": str(ruta_final)
-                            }
-                            
-                            if commit_db("""INSERT INTO test_results (machine_name, health_score, missing_nodes, health_map, evidence_path, timestamp)
-                                          VALUES (:m, :s, :n, :map, :e, CURRENT_TIMESTAMP)""", params):
-                                
-                                st.session_state.recortes = {}
-                                st.session_state.editando_manual = False
-                                st.success(f"✅ ¡{maquina_nombre} Actualizada con {salud_final:.1f}%!")
-                                st.balloons()
-                                time.sleep(2)
-                                st.rerun()
-
-                    except Exception as e:
-                        st.error(f"Error crítico: {e}")
+                                if exito:
+                                    st.session_state.recortes = {}
+                                    st.session_state.editando_manual = False
+                                    st.success(f"✅ ¡{machine_selected_global} Actualizada! Total: {salud_final:.1f}%")
+                                    st.balloons()
+                                    time.sleep(2)
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Los datos se procesaron pero NO se pudieron guardar por error en la base de datos.")
+                            else:
+                                st.warning("⚠️ No se generaron mapas válidos. Revisa los recortes de la imagen.")
 
 # =========================================================
 # 6. TAB DE GESTIÓN (SOLO ADMINISTRADORES)
