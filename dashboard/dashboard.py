@@ -516,60 +516,50 @@ with tab_planta:
 # TAB 3: ANÁLISIS MANUAL Y CROPPER (OPTIMIZADO)
 # =========================================================
 with tab_analisis:
-    st.info("Sube una imagen, rótala y recorta los cabezales. El sistema procesará cada uno por separado.")
+    st.info("Sube una imagen, rótala y recorta los cabezales.")
     
     if 'recortes' not in st.session_state:
         st.session_state.recortes = {}
-    if 'editando_manual' not in st.session_state:
-        st.session_state.editando_manual = False
-    
-    # 1. Subida de archivo
+
     uploaded_file = st.file_uploader("Subir imagen del test", type=['jpg', 'png', 'jpeg'], key="up_manual")
     
-    if uploaded_file:
-        # 2. Abrir la imagen original (solo si hay archivo)
-        img_raw = Image.open(uploaded_file)
-        
-        st.subheader("1. Ajuste y Rotación")
-        grados = st.slider("Girar imagen (grados)", -180, 180, 0, step=1, key="rotate_slider")
-        
-        # 3. CREACIÓN DE LA VARIABLE (Aquí se define img_rotated)
-        img_rotated = img_raw.rotate(grados, expand=True, resample=Image.BICUBIC)
-        
-        # 4. USO DE LA VARIABLE (Dentro del mismo bloque IF)
-        if img_rotated is not None:
+    # Creamos las columnas FUERA del if para que siempre existan
+    col_edit, col_prev = st.columns([2, 1])
+    
+    with col_edit:
+        if uploaded_file:
+            img_raw = Image.open(uploaded_file)
+            st.subheader("1. Ajuste y Rotación")
+            grados = st.slider("Girar imagen", -180, 180, 0, key="rotate_slider")
+            img_rotated = img_raw.rotate(grados, expand=True, resample=Image.BICUBIC)
+            
             st.divider()
             st.subheader("2. Recorte Manual")
-            
             num_cabezales = st.number_input("Número de cabezales", min_value=1, value=2)
             cabezal_actual = st.selectbox("Cabezal a recortar:", range(1, num_cabezales + 1))
             
-            # Key única para evitar conflictos de estado
-            crop_key = f"vutek_crop_{cabezal_actual}"
-            
-            # Cropper libre para Vutek
             img_cropped = st_cropper(
                 img_rotated, 
                 realtime_update=True, 
                 box_color='#FF0000', 
                 aspect_ratio=None, 
-                key=crop_key
+                key=f"vutek_crop_{cabezal_actual}"
             )
             
             if st.button(f"💾 Guardar Recorte {cabezal_actual}", type="primary"):
                 st.session_state.recortes[cabezal_actual] = img_cropped.copy()
-                st.success(f"Cabezal {cabezal_actual} capturado.")
-    else:
-        # Si no hay archivo, avisamos al usuario en lugar de dar error
-        st.info("Por favor, sube una imagen para comenzar el análisis.")
-                    
-        with col_prev:
-            st.subheader("Vista Previa")
+                st.toast(f"✅ Cabezal {cabezal_actual} guardado")
+        else:
+            st.info("Esperando imagen...")
+
+    # ESTA SECCIÓN ESTABA MAL IDENTADA
+    with col_prev:
+        st.subheader("Vista Previa")
+        if st.session_state.recortes:
             for h_id in sorted(st.session_state.recortes.keys()):
-                st.image(st.session_state.recortes[h_id], caption=f"Cabezal {h_id}", use_container_width=True)
+                st.image(st.session_state.recortes[h_id], caption=f"Cabezal {h_id}")
             
-            if st.session_state.recortes:
-                st.divider()
+            st.divider()
                 
                 # --- BOTÓN FINAL DE PROCESAMIENTO ---
                 if st.button("🚀 INICIAR PROCESAMIENTO TOTAL Y SINCRONIZAR", use_container_width=True, type="secondary"):
