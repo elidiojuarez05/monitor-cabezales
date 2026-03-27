@@ -106,43 +106,41 @@ def process_epson(img, config):
 # ===============================
 # 🔵 STANDARD (VUTEK, DURST, etc.)
 # ===============================
-def process_standard_manual(roi, config):
+def process_standard_manual(cropped_image, config):
     """
-    Analiza EXACTAMENTE el recorte manual enviado.
-    No usa detección automática de bordes (ROI).
+    Analiza EXACTAMENTE los píxeles del recorte.
+    No intenta buscar bordes automáticamente.
     """
-    # Convertir PIL a OpenCV
-    img_cv = np.array(roi)
-    if len(img_cv.shape) == 3:
-        gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
-    else:
-        gray = img_cv
+    # Convertir PIL a OpenCV correctamente
+    img_cv = np.array(cropped_image.convert('RGB'))
+    img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
+    
+    # Convertir a escala de grises
+    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
 
-    # Binarización: Invertimos para que la tinta sea blanca (255) y el fondo negro (0)
-    # Usamos un umbral fijo (180) para evitar que el auto-threshold ignore puntos tenues
+    # Binarización: Ajustamos el umbral para detectar gotas
+    # Usamos 180 para que sea sensible en las Vutek
     _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
 
     rows = config["rows"]
     cols = config["cols"]
     h, w = thresh.shape
     
-    # Calculamos la rejilla según las filas/columnas de la máquina
-    block_w = max(1, w // cols)
-    block_h = max(1, h // rows)
+    block_w = w / cols
+    block_h = h / rows
 
     injection_map = np.zeros((rows, cols))
 
     for r in range(rows):
         for c in range(cols):
-            x1, x2 = c * block_w, min((c + 1) * block_w, w)
-            y1, y2 = r * block_h, min((r + 1) * block_h, h)
+            x1, x2 = int(c * block_w), int((c + 1) * block_w)
+            y1, y2 = int(r * block_h), int((r + 1) * block_h)
             
             block = thresh[y1:y2, x1:x2]
             
             if block.size > 0:
-                # Si hay más de un 1.5% de pixeles con "tinta", el nozzle está activo
-                ink_presence = np.sum(block == 255) / block.size
-                if ink_presence > 0.015: 
+                # Si hay más del 1% de píxeles negros (tinta), el nozzle está OK
+                if (np.sum(block == 255) / block.size) > 0.01: 
                     injection_map[r, c] = 1
 
     return injection_map
