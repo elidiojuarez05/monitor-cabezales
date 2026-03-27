@@ -522,62 +522,46 @@ with tab_analisis:
         st.session_state.recortes = {}
     if 'editando_manual' not in st.session_state:
         st.session_state.editando_manual = False
-
+    
+    # 1. Subida de archivo
     uploaded_file = st.file_uploader("Subir imagen del test", type=['jpg', 'png', 'jpeg'], key="up_manual")
     
     if uploaded_file:
-        st.session_state.editando_manual = True
+        # 2. Abrir la imagen original (solo si hay archivo)
         img_raw = Image.open(uploaded_file)
         
-        col_edit, col_prev = st.columns([2, 1])
+        st.subheader("1. Ajuste y Rotación")
+        grados = st.slider("Girar imagen (grados)", -180, 180, 0, step=1, key="rotate_slider")
         
-        with col_edit:
-            st.subheader("1. Ajuste y Rotación")
-            grados = st.slider("Girar imagen (grados)", -180, 180, 0, step=1, key="rotate_slider")
-            # --- VALIDACIÓN PREVIA ---
-            if img_rotated is not None:
-                # 1. Asegúrate de que el key sea un string limpio
-                crop_key = f"crop_vutek_{int(cabezal_actual)}"
-                
-                try:
-                    # 2. Llamada simplificada (algunas versiones no aceptan canvas_height)
-                    img_cropped = st_cropper(
-                        img_rotated,
-                        realtime_update=True,
-                        box_color='#FF0000',
-                        aspect_ratio=None,
-                        key=crop_key
-                    )
-                except Exception as e:
-                    st.error(f"Error en el Cropper: {e}")
-                    # Fallback: si falla el cropper, usamos la imagen rotada completa
-                    img_cropped = img_rotated
-            else:
-                st.error("No se pudo cargar la imagen para recortar.")
-            
+        # 3. CREACIÓN DE LA VARIABLE (Aquí se define img_rotated)
+        img_rotated = img_raw.rotate(grados, expand=True, resample=Image.BICUBIC)
+        
+        # 4. USO DE LA VARIABLE (Dentro del mismo bloque IF)
+        if img_rotated is not None:
             st.divider()
             st.subheader("2. Recorte Manual")
-            num_cabezales = st.number_input("Número de cabezales en la imagen", min_value=1, value=2, step=1)
-            cabezal_actual = st.selectbox("Selecciona qué cabezal vas a recortar:", range(1, num_cabezales + 1))
             
-            # --- CROPPER ---
-            crop_key = f"cropper_estatico_{cabezal_actual}" 
-
+            num_cabezales = st.number_input("Número de cabezales", min_value=1, value=2)
+            cabezal_actual = st.selectbox("Cabezal a recortar:", range(1, num_cabezales + 1))
+            
+            # Key única para evitar conflictos de estado
+            crop_key = f"vutek_crop_{cabezal_actual}"
+            
+            # Cropper libre para Vutek
             img_cropped = st_cropper(
                 img_rotated, 
                 realtime_update=True, 
-                box_color='#FF0000',  
-                aspect_ratio=None,           # Permite cualquier forma (rectángulo libre)
-                should_resize_out=False,     # Mantiene la resolución original al guardar
-                canvas_height=800,           # Aumenta esto si la imagen es muy larga
-                key=f"crop_vutek_{cabezal_actual}" # Key única por cabezal
+                box_color='#FF0000', 
+                aspect_ratio=None, 
+                key=crop_key
             )
             
-            # 2. El botón de guardado debe capturar el estado actual de 'img_cropped'
-            if st.button(f"💾 Guardar Recorte del Cabezal {cabezal_actual}", type="primary"):
-                # IMPORTANTE: Copiamos la imagen para que no sea una referencia al widget
+            if st.button(f"💾 Guardar Recorte {cabezal_actual}", type="primary"):
                 st.session_state.recortes[cabezal_actual] = img_cropped.copy()
-                st.toast(f"✅ Cabezal {cabezal_actual} guardado con éxito.")
+                st.success(f"Cabezal {cabezal_actual} capturado.")
+    else:
+        # Si no hay archivo, avisamos al usuario en lugar de dar error
+        st.info("Por favor, sube una imagen para comenzar el análisis.")
                     
         with col_prev:
             st.subheader("Vista Previa")
