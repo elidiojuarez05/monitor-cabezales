@@ -585,8 +585,29 @@ with tab_analisis:
         # =========================================
         with col_prev:
             st.subheader("Lista de Recortes")
-            for idx in sorted(st.session_state.recortes.keys()):
-                st.image(st.session_state.recortes[idx], caption=f"H-{idx}")
+            all_maps_list = []
+            t_missing, t_nodes = 0, 0
+            config_base = MACHINE_CONFIGS[machine_selected_global].copy()
+            
+            for idx, img_save in st.session_state.recortes.items():
+                # 🔹 Asegurarse de que img_save sea PIL.Image
+                if not isinstance(img_save, Image.Image):
+                    try:
+                        img_save = Image.fromarray(img_save)
+                    except Exception as e:
+                        st.warning(f"Recorte {idx} inválido: {e}")
+                        continue
+            
+                try:
+                    porcentaje, mapa = process_standard_manual(img_save, config_base)
+                except Exception as e:
+                    st.warning(f"Error procesando recorte {idx}: {e}")
+                    continue
+            
+                missing = int(np.count_nonzero(mapa == 0))
+                t_missing += missing
+                t_nodes += mapa.size
+                all_maps_list.append({"id": idx, "mapa": mapa.tolist()})
             
             # =========================================
             # 🚀 Procesar y sincronizar
