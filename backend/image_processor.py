@@ -106,44 +106,43 @@ def process_epson(img, config):
 # ===============================
 # 🔵 STANDARD (VUTEK, DURST, etc.)
 # ===============================
-def process_standard(img, config):
+def process_standard_manual(roi, config):
+    """
+    Versión para procesamiento MANUAL. 
+    'roi' ya es el recorte que viene del cropper, no necesita detección automática.
+    """
+    # 1. Convertir a gris y binarizar
+    if len(roi.shape) == 3:
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = roi
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    _, thresh = cv2.threshold(
-        gray, 0, 255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
-    )
-
-    roi = detect_roi_auto(thresh)
+    # Umbral de binarización
+    _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
 
     rows = config["rows"]
     cols = config["cols"]
-
-    h, w = roi.shape
-    block_w = w // cols
-    block_h = h // rows
+    h, w = thresh.shape
+    
+    block_w = max(1, w // cols)
+    block_h = max(1, h // rows)
 
     injection_map = np.zeros((rows, cols))
 
     for r in range(rows):
         for c in range(cols):
+            x1, x2 = c * block_w, (c + 1) * block_w
+            y1, y2 = r * block_h, (r + 1) * block_h
+            
+            block = thresh[y1:y2, x1:x2]
+            
+            if block.size > 0:
+                # Sensibilidad: si hay más del 2% de píxeles activos, el nozzle funciona
+                white_ratio = np.sum(block == 255) / block.size
+                if white_ratio > 0.02: 
+                    injection_map[r, c] = 1
 
-            x1 = c * block_w
-            x2 = (c + 1) * block_w
-            y1 = r * block_h
-            y2 = (r + 1) * block_h
-
-            block = roi[y1:y2, x1:x2]
-
-            white_ratio = np.sum(block == 255) / block.size
-
-            if white_ratio > 0.03:
-                injection_map[r, c] = 1
-
-    porcentaje = (np.sum(injection_map) / (rows * cols)) * 100
-
-    return porcentaje, injection_map
+    return injection_map, None, "OK"
 
 
 # ===============================
